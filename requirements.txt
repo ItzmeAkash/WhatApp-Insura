@@ -2,3 +2,4 @@ aiohttp==3.11.12
 fastapi==0.115.8
 langchain==0.3.19
 langchain-groq==0.2.4
+uvicorn==0.34.0
