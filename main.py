@@ -824,7 +824,7 @@ async def get_user_data(phone_number: str):
     else:
         raise HTTPException(status_code=404, detail="User not found")
 
-# New endpoint to test LLM response directly
+# New endpoint to test LLM response directlys
 @app.get("/test-llm/{message}")
 async def test_llm(message: str):
     try:
