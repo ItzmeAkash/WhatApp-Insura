@@ -11,8 +11,12 @@ from dotenv import load_dotenv
 import os
 import json
 from langchain_groq.chat_models import ChatGroq
-from langchain.schema import HumanMessage,SystemMessage
+from langchain.schema import HumanMessage, SystemMessage
 from concurrent.futures import ThreadPoolExecutor
+import base64
+import tempfile
+from pydub import AudioSegment
+import speech_recognition as sr
 
 load_dotenv()
 app = FastAPI()
@@ -21,6 +25,7 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 VERSION = os.getenv("VERSION")
 WHATAPP_URL = f"https://graph.facebook.com/{VERSION}/{PHONE_NUMBER_ID}/messages"
 WHATSAPP_TOKEN = os.getenv("ACCESS_TOKEN")
+ENACT_API_URL = os.getenv("ENACT_API_URL", "https://your-enact-api-endpoint.com")
 
 # Initialize LLM
 llm = ChatGroq(
@@ -40,7 +45,8 @@ INITIAL_QUESTIONS = [
         "options": [
             "Medical Insurance",
             "Motor Insurance",
-            "Claim"
+            "Claim",
+            "ENACT Services"  # Added ENACT option to the initial menu
         ]
     }
 ]
@@ -74,6 +80,17 @@ MEDICAL_QUESTIONS = [
             "Investors"
         ]
     }
+]
+
+# List of Emirates for ENACT flow
+EMIRATES_LIST = [
+    "Dubai", 
+    "Abu Dhabi", 
+    "Sharjah", 
+    "Ajman", 
+    "Fujairah", 
+    "Ras Al Khaimah", 
+    "Umm Al Quwain"
 ]
 
 def send_whatsapp_message(to, message):
@@ -123,7 +140,6 @@ async def process_message_with_llm(from_id, text):
     try:
         # Start typing indicator
         send_typing_indicator(from_id)
-        
         
         # Create a message for the LLM with history context and get response
         prompt = f"user response: {text}. Please assist."
@@ -326,6 +342,186 @@ def store_interaction(from_id, question, answer):
             "timestamp": time.time()
         })
 
+# New function to handle voice messages
+async def process_voice_message(message_data, from_id, profile_name):
+    """
+    Process voice messages from WhatsApp
+    1. Download the voice message
+    2. Convert it to text using speech recognition
+    3. Process the text as a regular message or ENACT flow
+    """
+    try:
+        # Send message to let user know we're processing their voice message
+        send_whatsapp_message(from_id, "I'm processing your voice message...")
+        
+        # Extract media ID
+        media_id = message_data.get("id", "")
+        if not media_id:
+            print("Error: No media ID found in voice message")
+            send_whatsapp_message(from_id, "Sorry, I couldn't process your voice message. Please try again.")
+            return
+            
+        # Download the voice message using WhatsApp Cloud API
+        media_url = f"https://graph.facebook.com/{VERSION}/{media_id}"
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_TOKEN}"
+        }
+        
+        response = requests.get(media_url, headers=headers)
+        if response.status_code != 200:
+            print(f"Error downloading voice message: {response.status_code} - {response.text}")
+            send_whatsapp_message(from_id, "Sorry, I couldn't download your voice message. Please try again.")
+            return
+            
+        # Get the URL for the actual media file
+        media_url = response.json().get("url")
+        if not media_url:
+            print("Error: No media URL found in API response")
+            send_whatsapp_message(from_id, "Sorry, I couldn't process your voice message. Please try again.")
+            return
+            
+        # Download the audio file
+        audio_response = requests.get(media_url, headers=headers)
+        if audio_response.status_code != 200:
+            print(f"Error downloading audio file: {audio_response.status_code}")
+            send_whatsapp_message(from_id, "Sorry, I couldn't download your audio. Please try again.")
+            return
+            
+        # Save the audio to a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as temp_file:
+            temp_file.write(audio_response.content)
+            temp_file_path = temp_file.name
+            
+        # Convert OGG to WAV (speech_recognition works better with WAV)
+        try:
+            audio = AudioSegment.from_ogg(temp_file_path)
+            wav_file_path = temp_file_path.replace(".ogg", ".wav")
+            audio.export(wav_file_path, format="wav")
+            
+            # Use speech recognition to convert to text
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_file_path) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data)  # Using Google's Speech Recognition
+                
+            print(f"Voice message transcribed: {text}")
+            
+            # Clean up temporary files
+            os.remove(temp_file_path)
+            os.remove(wav_file_path)
+            
+            # Send the transcribed text back to the user for confirmation
+            send_whatsapp_message(from_id, f"I heard: \"{text}\"")
+            
+            # Check if the message contains "ENACT" keyword
+            if re.search(r'\benact\b', text, re.IGNORECASE):
+                # Start the ENACT flow
+                handle_enact_keyword(from_id, profile_name)
+            else:
+                # Process as regular message
+                await process_conversation(from_id, text, profile_name, None)
+            
+        except Exception as e:
+            print(f"Error in audio processing: {e}")
+            send_whatsapp_message(from_id, "Sorry, I couldn't transcribe your voice message. Please try again or type your message.")
+            # Clean up temporary files if they exist
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            return
+            
+    except Exception as e:
+        print(f"General error processing voice message: {e}")
+        send_whatsapp_message(from_id, "Sorry, I encountered an error processing your voice message. Please try again.")
+
+# Function to handle ENACT keyword detection
+def handle_enact_keyword(from_id, profile_name):
+    """Start the ENACT flow when the keyword is detected"""
+    # Initialize user state if not exists
+    if from_id not in user_states:
+        user_states[from_id] = {
+            "stage": "greeting",
+            "name": profile_name,
+            "responses": {},
+            "question_index": 0,
+            "selected_service": None,
+            "conversation_history": [],
+            "llm_conversation_count": 0
+        }
+    
+    # Set the stage to ENACT flow
+    user_states[from_id]["stage"] = "enact_flow"
+    user_states[from_id]["selected_service"] = "ENACT Services"
+    
+    # Check if we already have the user's name
+    if user_states[from_id]["name"]:
+        # We have the name, store it and ask for phone number
+        user_states[from_id]["enact_name"] = user_states[from_id]["name"]
+        ask_for_phone_number(from_id)
+    else:
+        # Ask for name first
+        ask_for_name(from_id)
+
+# Function to ask for the user's name in ENACT flow
+def ask_for_name(from_id):
+    """Ask for the user's name in the ENACT flow"""
+    message = "I noticed you mentioned ENACT. To proceed, I'll need a few details. What is your name?"
+    send_whatsapp_message(from_id, message)
+    store_interaction(from_id, "ENACT flow started", message)
+    user_states[from_id]["stage"] = "enact_awaiting_name"
+
+# Function to ask for the user's phone number in ENACT flow
+def ask_for_phone_number(from_id):
+    """Ask for the user's phone number in the ENACT flow"""
+    message = f"Thanks {user_states[from_id]['enact_name']}! Now, please provide your phone number."
+    send_whatsapp_message(from_id, message)
+    store_interaction(from_id, "Asked for phone number", message)
+    user_states[from_id]["stage"] = "enact_awaiting_phone"
+
+# Function to send the list of emirates in ENACT flow
+def send_emirate_options(from_id):
+    """Send interactive list of emirates to choose from"""
+    message = "Great! Please select your emirate:"
+    send_interactive_options(from_id, message, EMIRATES_LIST)
+    store_interaction(from_id, "Asked for emirate selection", message)
+    user_states[from_id]["stage"] = "enact_awaiting_emirate"
+
+# Function to call external API and send link for ENACT flow
+async def process_enact_submission(from_id, name, phone, emirate):
+    """Submit ENACT details to external API and send link to user"""
+    try:
+        # Prepare the API request data
+        api_data = {
+            "name": name,
+            "phone": phone,
+            "emirate": emirate
+        }
+        
+        # Make the API request
+        send_whatsapp_message(from_id, "Processing your request, please wait a moment...")
+        response = requests.post(ENACT_API_URL, json=api_data)
+        
+        if response.status_code == 200:
+            link = response.json().get("link", "")
+            if link:
+                # Send the link to the user
+                message = f"Thank you! Here's your ENACT link: {link}"
+                send_whatsapp_message(from_id, message)
+                store_interaction(from_id, "ENACT link sent", message)
+                
+                # After a short delay, ask if they need anything else
+                await asyncio.sleep(2)
+                send_yes_no_options(from_id, "Would you like assistance with anything else?")
+                user_states[from_id]["stage"] = "waiting_for_new_query"
+            else:
+                send_whatsapp_message(from_id, "I received a response from our system but couldn't find your link. Please try again later.")
+        else:
+            print(f"API Error: {response.status_code} - {response.text}")
+            send_whatsapp_message(from_id, "I'm having trouble connecting to our system. Please try again later.")
+    
+    except Exception as e:
+        print(f"Error in ENACT API submission: {e}")
+        send_whatsapp_message(from_id, "I encountered an error while processing your request. Please try again later.")
+
 async def process_conversation(from_id, text, profile_name=None, interactive_response=None):
     """
     Handle the conversation flow with the user
@@ -343,6 +539,55 @@ async def process_conversation(from_id, text, profile_name=None, interactive_res
         }
     
     state = user_states[from_id]
+    
+    # Handle ENACT flow states
+    if state["stage"] == "enact_awaiting_name":
+        name = text.strip()
+        user_states[from_id]["enact_name"] = name
+        user_states[from_id]["name"] = name  # Also store in main name field
+        store_interaction(from_id, "User provided name for ENACT", f"Name: {name}")
+        
+        # Now ask for phone number
+        ask_for_phone_number(from_id)
+        return
+        
+    elif state["stage"] == "enact_awaiting_phone":
+        phone = text.strip()
+        user_states[from_id]["enact_phone"] = phone
+        user_states[from_id]["responses"]["phone_number"] = phone  # Also store in responses
+        store_interaction(from_id, "User provided phone for ENACT", f"Phone: {phone}")
+        
+        # Now ask for emirate selection
+        send_emirate_options(from_id)
+        return
+        
+    elif state["stage"] == "enact_awaiting_emirate":
+        # Check if this is an interactive response
+        selected_emirate = None
+        if interactive_response:
+            button_title = interactive_response.get("title")
+            if button_title:
+                selected_emirate = button_title
+        else:
+            # They typed an emirate instead of clicking
+            selected_emirate = text.strip()
+        
+        if selected_emirate:
+            user_states[from_id]["enact_emirate"] = selected_emirate
+            user_states[from_id]["responses"]["selected_emirate"] = selected_emirate
+            store_interaction(from_id, "User selected emirate for ENACT", f"Emirate: {selected_emirate}")
+            
+            # Now process the ENACT submission and send link
+            await process_enact_submission(
+                from_id, 
+                user_states[from_id]["enact_name"],
+                user_states[from_id]["enact_phone"],
+                selected_emirate
+            )
+        else:
+            # If they sent an invalid response, ask again
+            send_emirate_options(from_id)
+        return
     
     # Handle waiting for a new query with Yes/No buttons
     if state["stage"] == "waiting_for_new_query":
@@ -474,7 +719,6 @@ async def process_conversation(from_id, text, profile_name=None, interactive_res
                 motor_intro = f"Great! I see you're interested in Motor Insurance. Let me help you with that."
                 send_whatsapp_message(from_id, motor_intro)
                 store_interaction(from_id, "Service selection", motor_intro)
-                
                 await asyncio.sleep(1)
                 vehicle_question = "What is the year, make and model of your vehicle?"
                 send_whatsapp_message(from_id, vehicle_question)
