@@ -178,13 +178,13 @@ async def process_conversation(
         # Store vehicle information
         vehicle_info = text.strip()
         user_states[from_id]["responses"]["vehicle_info"] = vehicle_info
-        store_interaction(from_id, "What is the year, make and model of your vehicle?", f"Response: {vehicle_info}")
+        store_interaction(from_id, "What is the year, make and model of your vehicle?", f"Response: {vehicle_info}",user_states)
         user_states[from_id]["responses"]["motor_question_vehicle"] = "What is the year, make and model of your vehicle?"
         
         user_states[from_id]["stage"] = "motor_insurance_driver"
         driving_question = "Thank you. How many years have you been driving?"
         send_whatsapp_message(from_id, driving_question)
-        store_interaction(from_id, "Bot asked about driving experience", driving_question)
+        store_interaction(from_id, "Bot asked about driving experience", driving_question,user_states)
         user_states[from_id]["responses"]["motor_question_driving"] = driving_question
         return
         
@@ -192,12 +192,12 @@ async def process_conversation(
     elif state["stage"] == "motor_insurance_driver":
         driving_exp = text.strip()
         user_states[from_id]["responses"]["driving_experience"] = driving_exp
-        store_interaction(from_id, "Driving experience question", f"Response: {driving_exp}")
+        store_interaction(from_id, "Driving experience question", f"Response: {driving_exp}",user_states)
         
         user_states[from_id]["stage"] = "motor_insurance_coverage"
         coverage_question = "What type of coverage are you looking for? (Comprehensive, Third Party Only, etc.)"
         send_whatsapp_message(from_id, coverage_question)
-        store_interaction(from_id, "Bot asked about coverage", coverage_question)
+        store_interaction(from_id, "Bot asked about coverage", coverage_question,user_states)
         user_states[from_id]["responses"]["motor_question_coverage"] = coverage_question
         return
         
@@ -205,7 +205,7 @@ async def process_conversation(
     elif state["stage"] == "motor_insurance_coverage":
         coverage_type = text.strip()
         user_states[from_id]["responses"]["desired_coverage"] = coverage_type
-        store_interaction(from_id, "Coverage type question", f"Response: {coverage_type}")
+        store_interaction(from_id, "Coverage type question", f"Response: {coverage_type}",user_states)
         
         user_states[from_id]["stage"] = "motor_insurance_contact"
         contact_question = "Thank you for providing that information. What's your phone number and preferred contact time?"
