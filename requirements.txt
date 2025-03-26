@@ -4,3 +4,5 @@ langchain==0.3.19
 langchain-groq==0.2.4
 uvicorn==0.34.0
 python-dotenv==1.0.1
+pydub==0.25.1
+requests==2.32.3

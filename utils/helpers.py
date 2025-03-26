@@ -15,3 +15,22 @@ def store_interaction(from_id: str, question: str, answer: str, user_states: dic
             "answer": answer,
             "timestamp": time.time()
         })
+        
+# utils/helpers.py
+import requests
+
+def emaf_document(response_dict):
+    payload = {
+        "name": response_dict.get("May I know your name, please?"),
+        "network_id": response_dict.get("emaf_company_id"),
+        "phone": response_dict.get("May I kindly ask for your phone number, please?"),
+    }
+    emaf_api = "https://www.insuranceclub.ae/Api/emaf"
+    try:
+        respond = requests.post(emaf_api, json=payload, timeout=10)
+        respond.raise_for_status()
+        emaf_id = respond.json()["id"]
+        return emaf_id
+    except requests.RequestException as e:
+        print(f"Error calling EMAF API: {e}")
+        return None

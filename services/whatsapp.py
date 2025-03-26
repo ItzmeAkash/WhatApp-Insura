@@ -84,17 +84,23 @@ def send_interactive_buttons(recipient: str, text: str, options: list, user_stat
     return response.status_code == 200
 
 def send_interactive_list(recipient: str, text: str, options: list, user_states: dict, list_title: str = "Options", section_title: str = "Available options") -> bool:
+    # Ensure phone number has + prefix
+    if not recipient.startswith("+"):
+        recipient = f"+{recipient}"
+    
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
     
+    # Limit to 10 options and truncate titles to 24 characters
+    limited_options = options[:10]
     rows = [
         {
             "id": f"option_{i+1}",
-            "title": option,
+            "title": option[:24],  # Truncate to 24 chars
         }
-        for i, option in enumerate(options)
+        for i, option in enumerate(limited_options)
     ]
     
     payload = {
@@ -107,18 +113,20 @@ def send_interactive_list(recipient: str, text: str, options: list, user_states:
             "body": {"text": text},
             "action": {
                 "button": "View Options",
-                "sections": [{"title": section_title, "rows": rows}]
+                "sections": [{"title": section_title[:24], "rows": rows}]  # Ensure section title is <= 24 chars
             }
         }
     }
     
     response = requests.post(WHATAPP_URL, headers=headers, json=payload)
     print(f"Interactive list message sent to {recipient}, status code: {response.status_code}")
+    if response.status_code != 200:
+        print(f"Error response: {response.text}")  # Log the error details
     
     store_interaction(
         from_id=recipient,
         question=text,
-        answer=f"[Interactive list: {', '.join(options)}]",
+        answer=f"[Interactive list: {', '.join(limited_options)}]",
         user_states=user_states
     )
     

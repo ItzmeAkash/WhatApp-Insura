@@ -2,13 +2,13 @@ import asyncio
 import json
 import time
 from typing import Dict, Optional
-from config.settings import INITIAL_QUESTIONS, MEDICAL_QUESTIONS
+from config.settings import INITIAL_QUESTIONS, MEDICAL_QUESTIONS,COMPANY_NUMBER_MAPPING,EMAF_INSURANCE_COMPANIES
 from .whatsapp import (
     send_whatsapp_message,
     send_interactive_options,
     send_yes_no_options
 )
-from utils.helpers import is_thank_you, store_interaction
+from utils.helpers import emaf_document, is_thank_you, store_interaction
 
 async def process_conversation(
     from_id: str,
@@ -25,11 +25,67 @@ async def process_conversation(
             "question_index": 0,
             "selected_service": None,
             "conversation_history": [],
-            "llm_conversation_count": 0
+            "llm_conversation_count": 0,
         }
     
     state = user_states[from_id]
-    
+    if text.lower().strip() == "emaf" and state["stage"] not in ["emaf_name", "emaf_phone", "emaf_company"]:
+            user_states[from_id]["stage"] = "emaf_name"
+            name_request = "May I know your name, please?"
+            send_whatsapp_message(from_id, name_request)
+            store_interaction(from_id, "Bot asked for name (EMAF)", name_request, user_states)
+            return    
+    if state["stage"] == "emaf_name":
+            name = text.strip()
+            user_states[from_id]["responses"]["May I know your name, please?"] = name
+            store_interaction(from_id, "User provided name (EMAF)", f"Name received: {name}", user_states)
+            user_states[from_id]["stage"] = "emaf_phone"
+            phone_request = "May I kindly ask for your phone number, please?"
+            send_whatsapp_message(from_id, phone_request)
+            store_interaction(from_id, "Bot asked for phone number (EMAF)", phone_request, user_states)
+            return
+
+        # EMAF Flow: Awaiting Phone Number
+    if state["stage"] == "emaf_phone":
+            phone = text.strip()
+            user_states[from_id]["responses"]["May I kindly ask for your phone number, please?"] = phone
+            store_interaction(from_id, "User provided phone number (EMAF)", f"Phone received: {phone}", user_states)
+            user_states[from_id]["stage"] = "emaf_company"
+            company_request = "Could you kindly confirm the name of your insurance company, please?"
+            send_interactive_options(from_id, company_request, EMAF_INSURANCE_COMPANIES[0]['options'], user_states)
+            store_interaction(from_id, "Bot asked for insurance company (EMAF)", company_request, user_states)
+            
+            return
+
+        # EMAF Flow: Awaiting Insurance Company Selection
+    if state["stage"] == "emaf_company":
+            selected_option = interactive_response.get("title") if interactive_response else None
+            # In services/conversation_manager.py, within the "emaf_company" elif block
+            if selected_option in COMPANY_NUMBER_MAPPING:
+                company_id = COMPANY_NUMBER_MAPPING[selected_option]
+                user_states[from_id]["responses"]["emaf_company_id"] = company_id
+                store_interaction(from_id, "User selected insurance company (EMAF)", f"Selected: {selected_option} (ID: {company_id})", user_states)
+                
+                # Call emaf_document with the responses dictionary
+                emaf_id = emaf_document(user_states[from_id]["responses"])
+                if emaf_id:
+                    url = f"https://www.insuranceclub.ae/medical_form/view/{emaf_id}"
+                    send_whatsapp_message(from_id, f"Thank you for sharing the details. Please find the link below to view your emaf document: {url}")
+                    store_interaction(from_id, "EMAF URL provided", url, user_states)
+                else:
+                    send_whatsapp_message(from_id, "Sorry, there was an issue generating your link. Please try again later.")
+                    store_interaction(from_id, "EMAF URL generation failed", "Error", user_states)
+                
+                user_states[from_id]["stage"] = "waiting_for_new_query"
+                await asyncio.sleep(1)
+                send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
+            else:
+                from .llm import process_message_with_llm
+                await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+                await asyncio.sleep(1)
+                send_interactive_options(from_id, "Could you kindly confirm the name of your insurance company, please?", EMAF_INSURANCE_COMPANIES, user_states)
+            return    
+            
     if state["stage"] == "waiting_for_new_query":
         selected_option = interactive_response.get("title") if interactive_response else None
         store_interaction(from_id, "Would you like assistance with anything else?", selected_option or text, user_states)
@@ -51,14 +107,14 @@ async def process_conversation(
             store_interaction(from_id, "Follow-up prompt", follow_up, user_states)
         else:
             from .llm import process_message_with_llm
-            await process_message_with_llm( from_id=from_id, text=text, user_states=user_states)  # Note: LLM needs to be passed or initialized
+            await process_message_with_llm( from_id=from_id, text=text, user_states=user_states) 
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
         return
     
     if state["stage"] == "ai_response":
         from .llm import process_message_with_llm
-        await process_message_with_llm( from_id=from_id, text=text, user_states=user_states)  # Note: LLM needs to be passed or initialized
+        await process_message_with_llm( from_id=from_id, text=text, user_states=user_states) 
         user_states[from_id]["llm_conversation_count"] += 1
         if user_states[from_id]["llm_conversation_count"] >= 2:
             await asyncio.sleep(2)
