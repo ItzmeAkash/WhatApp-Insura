@@ -1,5 +1,5 @@
 import requests
-from config.settings import WHATAPP_URL, WHATSAPP_TOKEN
+from config.settings import WHATAPP_URL, WHATSAPP_TOKEN,VERSION
 from utils.helpers import store_interaction
 
 def send_whatsapp_message(to: str, message: str) -> bool:
@@ -140,3 +140,28 @@ def send_interactive_options(recipient: str, text: str, options: list, user_stat
 
 def send_yes_no_options(recipient: str, text: str, user_states: dict) -> bool:
     return send_interactive_buttons(recipient, text, ["Yes", "No"], user_states)
+
+
+
+def download_whatsapp_audio(media_id: str) -> bytes:
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}"
+    }
+    media_url = f"https://graph.facebook.com/{VERSION}/{media_id}"
+    print(f"Requesting media URL: {media_url}")
+    print(f"Using token (first 10 chars): {WHATSAPP_TOKEN[:10]}...")
+    response = requests.get(media_url, headers=headers)
+    
+    if response.status_code == 200:
+        audio_url = response.json().get("url")
+        print(f"Retrieved audio URL: {audio_url}")
+        audio_response = requests.get(audio_url, headers=headers)
+        if audio_response.status_code == 200:
+            print(f"Audio downloaded, size: {len(audio_response.content)} bytes")
+            return audio_response.content
+        else:
+            print(f"Failed to download audio: {audio_response.status_code}, Response: {audio_response.text}")
+            return None
+    else:
+        print(f"Failed to get media URL: {response.status_code}, Response: {response.text}")
+        return None

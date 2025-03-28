@@ -1,7 +1,8 @@
 import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
-from services.whatsapp import send_whatsapp_message
+from services.voiceText import transcribe_audio
+from services.whatsapp import download_whatsapp_audio, send_whatsapp_message
 from services.conversation_manager import process_conversation
 from services.llm import initialize_llm, process_message_with_llm
 from config.settings import VERIFY_TOKEN
@@ -14,17 +15,8 @@ user_states = {}
 @app.get("/")
 def welcome():
     return {"message": "Hello, Welcome to Insura!"}
-
 @app.api_route("/webhook", methods=["GET", "POST"])
 async def webhook(request: Request):
-    if request.method == "GET":
-        mode = request.query_params.get("hub.mode")
-        token = request.query_params.get("hub.verify_token")
-        challenge = request.query_params.get("hub.challenge")
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            return PlainTextResponse(content=challenge, status_code=200)
-        return PlainTextResponse(content="error", status_code=403)
-    
     if request.method == "POST":
         data = await request.json()
         print("Webhook received data:", data)
@@ -38,16 +30,32 @@ async def webhook(request: Request):
                         from_id = messages[0].get("from")
                         msg_type = messages[0].get("type")
                         profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name")
+                        
                         if msg_type == "text":
                             text = messages[0].get("text", {}).get("body", "")
                             if from_id and text:
                                 asyncio.create_task(process_conversation(from_id, text, user_states, profile_name, None))
+                        
                         elif msg_type == "interactive":
                             interactive_data = messages[0].get("interactive", {})
                             interactive_type = interactive_data.get("type")
                             interactive_response = interactive_data.get("button_reply" if interactive_type == "button_reply" else "list_reply", {})
                             if interactive_response:
                                 asyncio.create_task(process_conversation(from_id, "", user_states, profile_name, interactive_response))
+                        
+                        elif msg_type == "audio":  # Handle voice messages
+                            media_id = messages[0].get("audio", {}).get("id")
+                            if media_id:
+                                audio_data = download_whatsapp_audio(media_id)
+                                if audio_data:
+                                    transcribed_text = await transcribe_audio(audio_data)
+                                    if transcribed_text:
+                                        print(f"Transcribed voice message from {from_id}: {transcribed_text}")
+                                        asyncio.create_task(process_conversation(from_id, transcribed_text, user_states, profile_name, None))
+                                    else:
+                                        send_whatsapp_message(from_id, "Sorry, I couldn’t understand your voice message. Could you please try again or type your request?")
+                                else:
+                                    send_whatsapp_message(from_id, "Sorry, I couldn’t retrieve your voice message. Please try again.")
                     elif "statuses" in value:
                         status_info = value["statuses"][0]
                         print(f"Message to {status_info.get('recipient_id', 'unknown')} is now {status_info.get('status', 'unknown')}")
