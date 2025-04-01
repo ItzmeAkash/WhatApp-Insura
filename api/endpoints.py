@@ -17,7 +17,20 @@ def welcome():
     return {"message": "Hello, Welcome to Insura!"}
 @app.api_route("/webhook", methods=["GET", "POST"])
 async def webhook(request: Request):
-    if request.method == "POST":
+    if request.method == "GET":
+        # Handle the verification request
+        verify_token = request.query_params.get("hub.verify_token")
+        mode = request.query_params.get("hub.mode")
+        challenge = request.query_params.get("hub.challenge")
+        
+        if mode and verify_token:
+            if mode == "subscribe" and verify_token == VERIFY_TOKEN:
+                print("WEBHOOK_VERIFIED")
+                return PlainTextResponse(challenge)
+            else:
+                raise HTTPException(status_code=403, detail="Verification failed")
+                
+    elif request.method == "POST":
         data = await request.json()
         print("Webhook received data:", data)
         if "object" in data and "entry" in data and data["object"] == "whatsapp_business_account":
