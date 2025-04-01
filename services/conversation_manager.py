@@ -29,7 +29,7 @@ async def process_conversation(
         }
     
     state = user_states[from_id]
-    if text.lower().strip() == "emaf" and state["stage"] not in ["emaf_name", "emaf_phone", "emaf_company"]:
+    if "emaf" in text.lower() and state["stage"] not in ["emaf_name", "emaf_phone", "emaf_company"]:
             user_states[from_id]["stage"] = "emaf_name"
             name_request = "May I know your name, please?"
             send_whatsapp_message(from_id, name_request)
