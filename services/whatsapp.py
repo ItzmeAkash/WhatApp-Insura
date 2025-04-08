@@ -165,3 +165,4 @@ def download_whatsapp_audio(media_id: str) -> bytes:
     else:
         print(f"Failed to get media URL: {response.status_code}, Response: {response.text}")
         return None
+    

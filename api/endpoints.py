@@ -28,8 +28,8 @@ async def webhook(request: Request):
                 print("WEBHOOK_VERIFIED")
                 return PlainTextResponse(challenge)
             else:
-                raise HTTPException(status_code=403, detail="Verification failed")
-                
+                raise HTTPException(status_code=403, detail="Verification failed")                    
+            
     elif request.method == "POST":
         data = await request.json()
         print("Webhook received data:", data)

@@ -24,7 +24,7 @@ INITIAL_QUESTIONS = [
 
 MEDICAL_QUESTIONS = [
     {
-        "question": "Let's start with your Medical insurance details. Choose your Visa issued Emirate?",
+        "question": "Great Choice! Let's start with your Medical insurance details. Choose your Visa issued Emirate?",
         "options": [
             "Abudhabi",
             "Ajman", 
@@ -36,7 +36,7 @@ MEDICAL_QUESTIONS = [
         ]
     },
     {
-        "question": "What type of plan are you looking for?",
+        "question": "Thank you! Now, Let's move on to: What type of plan are you looking for?",
         "options": [
             "Basic Plan", 
             "Enhanced Plan", 
@@ -45,7 +45,7 @@ MEDICAL_QUESTIONS = [
         ]
     },
     {
-        "question": "Now, let's move to the sponsor details, Could you let me know the sponsor's type?",
+        "question": "Thank you! Now, let's move to the sponsor details, Could you let me know the sponsor's type?",
         "options": [
             "Employee",
             "Investors"
