@@ -1,8 +1,9 @@
 import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
+from services.document_processor import process_uploaded_document,  display_extracted_info
 from services.voiceText import transcribe_audio
-from services.whatsapp import download_whatsapp_audio, send_whatsapp_message
+from services.whatsapp import download_whatsapp_audio, download_whatsapp_media, send_whatsapp_message
 from services.conversation_manager import process_conversation
 from services.llm import initialize_llm, process_message_with_llm
 from config.settings import VERIFY_TOKEN
@@ -22,14 +23,14 @@ async def webhook(request: Request):
         verify_token = request.query_params.get("hub.verify_token")
         mode = request.query_params.get("hub.mode")
         challenge = request.query_params.get("hub.challenge")
-        
+
         if mode and verify_token:
             if mode == "subscribe" and verify_token == VERIFY_TOKEN:
                 print("WEBHOOK_VERIFIED")
                 return PlainTextResponse(challenge)
             else:
-                raise HTTPException(status_code=403, detail="Verification failed")                    
-            
+                raise HTTPException(status_code=403, detail="Verification failed")
+
     elif request.method == "POST":
         data = await request.json()
         print("Webhook received data:", data)
@@ -43,19 +44,20 @@ async def webhook(request: Request):
                         from_id = messages[0].get("from")
                         msg_type = messages[0].get("type")
                         profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name")
-                        
+
                         if msg_type == "text":
                             text = messages[0].get("text", {}).get("body", "")
                             if from_id and text:
                                 asyncio.create_task(process_conversation(from_id, text, user_states, profile_name, None))
-                        
+
                         elif msg_type == "interactive":
                             interactive_data = messages[0].get("interactive", {})
                             interactive_type = interactive_data.get("type")
                             interactive_response = interactive_data.get("button_reply" if interactive_type == "button_reply" else "list_reply", {})
                             if interactive_response:
                                 asyncio.create_task(process_conversation(from_id, "", user_states, profile_name, interactive_response))
-                        
+
+
                         elif msg_type == "audio":  # Handle voice messages
                             media_id = messages[0].get("audio", {}).get("id")
                             if media_id:
@@ -69,6 +71,63 @@ async def webhook(request: Request):
                                         send_whatsapp_message(from_id, "Sorry, I couldn’t understand your voice message. Could you please try again or type your request?")
                                 else:
                                     send_whatsapp_message(from_id, "Sorry, I couldn’t retrieve your voice message. Please try again.")
+                        # elif msg_type == "document":
+                        #     media_id = messages[0].get("document", {}).get("id")
+                        #     mime_type = messages[0].get("document", {}).get("mime_type")
+                        #     filename = messages[0].get("document", {}).get("filename", "unknown")
+                        #     if media_id:
+                        #         print(f"Received document from {from_id}: {filename}, MIME: {mime_type}")
+                        #         # Check if user is in the correct stage; if not, inform them
+                        #         if user_states[from_id]["stage"] != "medical_upload_document":
+                        #             send_whatsapp_message(from_id, "I wasn’t expecting a document right now. Please let me know how I can assist you!")
+                        #             return {"status": "success"}
+                        #         # Download and process the document
+                        #         document_data = download_whatsapp_media(media_id)
+                        #         if document_data:
+                        #             try:
+                        #                 send_whatsapp_message(from_id, "Received your document. Processing now, please wait...")
+                        #                 extracted_info = await process_uploaded_document(from_id, document_data, mime_type, filename, user_states)
+                        #                 if extracted_info:
+                        #                     print(f"Extracted info: {extracted_info}")
+                        #                     # Use the new function to display all information at once without verification
+                        #                     asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states))
+                        #                     user_states[from_id]["stage"] = "medical_marital_status"
+                        #                 else:
+                        #                     send_whatsapp_message(from_id, "Sorry, I couldn’t extract information from your document. Please try again or enter the details manually.")
+                        #             except Exception as e:
+                        #                 print(f"Error processing document: {e}")
+                        #                 send_whatsapp_message(from_id, "An error occurred while processing your document. Please try again.")
+                        #         else:
+                        #             send_whatsapp_message(from_id, "Sorry, I couldn’t retrieve your document. Please try again.")
+                        #Tododclea
+                        elif msg_type == "document":
+                            media_id = messages[0].get("document", {}).get("id")
+                            mime_type = messages[0].get("document", {}).get("mime_type")
+                            filename = messages[0].get("document", {}).get("filename", "unknown")
+                            if media_id:
+                                print(f"Received document from {from_id}: {filename}, MIME: {mime_type}")
+                                # Check if user is in the correct stage; if not, inform them
+                                if user_states[from_id]["stage"] != "medical_upload_document":
+                                    send_whatsapp_message(from_id, "I wasn't expecting a document right now. Please let me know how I can assist you!")
+                                    return {"status": "success"}
+                                # Download and process the document
+                                document_data = download_whatsapp_media(media_id)
+                                if document_data:
+                                    try:
+                                        send_whatsapp_message(from_id, "Received your document. Processing now, please wait...")
+                                        extracted_info = await process_uploaded_document(from_id, document_data, mime_type, filename, user_states)
+                                        if extracted_info:
+                                            print(f"Extracted info: {extracted_info}")
+                                            # Use the new function to display information and allow editing
+                                            asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states))
+                                            # Don't set the stage here - it will be set in the display_extracted_info function
+                                        else:
+                                            send_whatsapp_message(from_id, "Sorry, I couldn't extract information from your document. Please try again or enter the details manually.")
+                                    except Exception as e:
+                                        print(f"Error processing document: {e}")
+                                        send_whatsapp_message(from_id, "An error occurred while processing your document. Please try again.")
+                                else:
+                                    send_whatsapp_message(from_id, "Sorry, I couldn't retrieve your document. Please try again.")
                     elif "statuses" in value:
                         status_info = value["statuses"][0]
                         print(f"Message to {status_info.get('recipient_id', 'unknown')} is now {status_info.get('status', 'unknown')}")
