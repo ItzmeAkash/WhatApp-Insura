@@ -171,7 +171,6 @@ async def process_uploaded_document(from_id: str, document_data: bytes, mime_typ
     finally:
         os.unlink(temp_path)
 
-# Modified function to display extracted info and offer editing
 async def display_extracted_info(from_id: str, extracted_info: dict, user_states: dict):
     # Define the fields to display
     fields_to_display = [
@@ -183,6 +182,17 @@ async def display_extracted_info(from_id: str, extracted_info: dict, user_states
     user_states[from_id]["extracted_info"] = extracted_info
     user_states[from_id]["verified_info"] = extracted_info.copy()  # Create a copy that can be edited
 
+    # Check if card_number is missing
+    if not extracted_info.get("card_number"):
+        # Ask for back side of Emirates ID
+        message = "I need to see the back side of your Emirates ID to get the card number. Please upload a photo of the back side."
+        send_whatsapp_message(from_id, message)
+        store_interaction(from_id, "Bot requested back of Emirates ID", message, user_states)
+        
+        # Set the stage for waiting for back side upload
+        user_states[from_id]["stage"] = "waiting_for_back_id"
+        return
+    
     # Create a formatted message with all extracted information
     message = "Here is the information from your document:\n\n"
 
@@ -201,7 +211,53 @@ async def display_extracted_info(from_id: str, extracted_info: dict, user_states
     send_yes_no_options(from_id, confirmation_question, user_states)
     store_interaction(from_id, "Bot asked for information confirmation", confirmation_question, user_states)
 
-# New function to handle editing of document information
+# New function to merge information from front and back of ID
+async def merge_id_information(from_id: str, back_extracted_info: dict, user_states: dict):
+    # Retrieve the front side information
+    front_info = user_states[from_id]["verified_info"]
+    
+    # Merge the information, prioritizing back side for missing fields
+    # but front side for duplicated fields
+    merged_info = {}
+    
+    # Start with all back info
+    for key, value in back_extracted_info.items():
+        if value:  # Only include non-empty values
+            merged_info[key] = value
+    
+    # Add front info, preserving existing values
+    for key, value in front_info.items():
+        if value and key not in merged_info:  # Only add if not already present from back
+            merged_info[key] = value
+    
+    # Update the verified_info with the merged data
+    user_states[from_id]["verified_info"] = merged_info
+    
+    # Define the fields to display
+    fields_to_display = [
+        "name", "id_number", "date_of_birth", "nationality", "issue_date",
+        "expiry_date", "gender", "card_number", "occupation", "employer", "issuing_place"
+    ]
+    
+    # Create a formatted message with all extracted information
+    message = "Here is the complete information from your Emirates ID:\n\n"
+
+    for field in fields_to_display:
+        field_value = merged_info.get(field, "")
+        if field_value:  # Only include fields that have values
+            message += f"*{field.replace('_', ' ').title()}*: {field_value}\n"
+
+    # Send the message with all extracted information
+    send_whatsapp_message(from_id, message)
+    store_interaction(from_id, "Complete document information displayed", message, user_states)
+
+    # Ask if the information is correct
+    user_states[from_id]["stage"] = "document_info_confirmation"
+    confirmation_question = "Is all the information correct?"
+    send_yes_no_options(from_id, confirmation_question, user_states)
+    store_interaction(from_id, "Bot asked for information confirmation", confirmation_question, user_states)
+
+# Function to handle editing of document information
 async def handle_document_edit(from_id: str, user_states: dict, field_to_edit=None, new_value=None):
     # Define the fields that can be edited
     editable_fields = [
@@ -264,7 +320,7 @@ async def handle_document_edit(from_id: str, user_states: dict, field_to_edit=No
         store_interaction(from_id, "Bot asked if user wants to edit more", done_question, user_states)
         return
 
-# New function to complete the document editing process
+# Function to complete the document editing process
 async def complete_document_editing(from_id: str, user_states: dict):
     # Update member information with the verified info
     verified_info = user_states[from_id]["verified_info"]
@@ -285,7 +341,7 @@ async def complete_document_editing(from_id: str, user_states: dict):
     send_yes_no_options(from_id, confirmation_question, user_states)
     store_interaction(from_id, "Bot asked for final confirmation", confirmation_question, user_states)
 
-# New function to proceed with the workflow after final confirmation
+# Function to proceed with the workflow after final confirmation
 async def proceed_with_verified_document(from_id: str, user_states: dict):
     verified_info = user_states[from_id]["verified_info"]
     
@@ -307,9 +363,8 @@ async def proceed_with_verified_document(from_id: str, user_states: dict):
     send_interactive_options(from_id, marital_question, ["Single", "Married"], user_states)
     store_interaction(from_id, "Bot asked for marital status", marital_question, user_states)
     user_states[from_id]["responses"]["medical_question_marital_status"] = marital_question
-    
-    
-    
+
+# Function to proceed without edits
 async def proceed_without_edits(from_id: str, user_states: dict):
     verified_info = user_states[from_id]["verified_info"]
     

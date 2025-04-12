@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
-from services.document_processor import process_uploaded_document,  display_extracted_info
+from services.document_processor import merge_id_information, process_uploaded_document,  display_extracted_info
 from services.voiceText import transcribe_audio
 from services.whatsapp import download_whatsapp_audio, download_whatsapp_media, send_whatsapp_message
 from services.conversation_manager import process_conversation
@@ -100,34 +100,68 @@ async def webhook(request: Request):
                         #         else:
                         #             send_whatsapp_message(from_id, "Sorry, I couldn’t retrieve your document. Please try again.")
                         #Tododclea
-                        elif msg_type == "document":
-                            media_id = messages[0].get("document", {}).get("id")
-                            mime_type = messages[0].get("document", {}).get("mime_type")
-                            filename = messages[0].get("document", {}).get("filename", "unknown")
+                        elif msg_type in ["document", "image"]:
+                            # Get media ID and mime type based on message type
+                            if msg_type == "document":
+                                media_id = messages[0].get("document", {}).get("id")
+                                mime_type = messages[0].get("document", {}).get("mime_type")
+                                filename = messages[0].get("document", {}).get("filename", "unknown")
+                            else:  # image
+                                media_id = messages[0].get("image", {}).get("id")
+                                mime_type = "image/jpeg"  # WhatsApp typically sends JPEGs
+                                filename = f"{msg_type}-{media_id}.jpg"
+                                
                             if media_id:
-                                print(f"Received document from {from_id}: {filename}, MIME: {mime_type}")
-                                # Check if user is in the correct stage; if not, inform them
-                                if user_states[from_id]["stage"] != "medical_upload_document":
-                                    send_whatsapp_message(from_id, "I wasn't expecting a document right now. Please let me know how I can assist you!")
+                                print(f"Received {msg_type} from {from_id}: {filename}")
+                                
+                                # Check if we're waiting for back side of Emirates ID
+                                if from_id in user_states and user_states[from_id]["stage"] == "waiting_for_back_id":
+                                    media_data = download_whatsapp_media(media_id)
+                                    if media_data:
+                                        try:
+                                            send_whatsapp_message(from_id, f"Received the back side of your Emirates ID. Processing now, please wait...")
+                                            back_extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states)
+                                            if back_extracted_info:
+                                                print(f"Extracted info from back side: {back_extracted_info}")
+                                                # Merge information from front and back sides
+                                                asyncio.create_task(merge_id_information(from_id, back_extracted_info, user_states))
+                                            else:
+                                                send_whatsapp_message(from_id, "Sorry, I couldn't extract information from the back side of your ID. Let's proceed with the information we have.")
+                                                # Display front side information only
+                                                asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
+                                        except Exception as e:
+                                            print(f"Error processing back side {msg_type}: {e}")
+                                            send_whatsapp_message(from_id, "An error occurred while processing the back side of your ID. Let's proceed with the information we have.")
+                                            # Display front side information only
+                                            asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
+                                    else:
+                                        send_whatsapp_message(from_id, "Sorry, I couldn't retrieve the back side of your ID. Let's proceed with the information we have.")
+                                        # Display front side information only
+                                        asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
                                     return {"status": "success"}
-                                # Download and process the document
-                                document_data = download_whatsapp_media(media_id)
-                                if document_data:
-                                    try:
-                                        send_whatsapp_message(from_id, "Received your document. Processing now, please wait...")
-                                        extracted_info = await process_uploaded_document(from_id, document_data, mime_type, filename, user_states)
-                                        if extracted_info:
-                                            print(f"Extracted info: {extracted_info}")
-                                            # Use the new function to display information and allow editing
-                                            asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states))
-                                            # Don't set the stage here - it will be set in the display_extracted_info function
-                                        else:
-                                            send_whatsapp_message(from_id, "Sorry, I couldn't extract information from your document. Please try again or enter the details manually.")
-                                    except Exception as e:
-                                        print(f"Error processing document: {e}")
-                                        send_whatsapp_message(from_id, "An error occurred while processing your document. Please try again.")
+                                    
+                                # Check if user is in the stage for document upload
+                                elif from_id in user_states and user_states[from_id]["stage"] == "medical_upload_document":
+                                    media_data = download_whatsapp_media(media_id)
+                                    if media_data:
+                                        try:
+                                            send_whatsapp_message(from_id, f"Received your Emirates ID. Processing now, please wait...")
+                                            extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states)
+                                            if extracted_info:
+                                                print(f"Extracted info: {extracted_info}")
+                                                # Check if card_number is missing and handle accordingly
+                                                asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states))
+                                            else:
+                                                send_whatsapp_message(from_id, f"Sorry, I couldn't extract information from your {msg_type}. Please try again or enter the details manually.")
+                                        except Exception as e:
+                                            print(f"Error processing {msg_type}: {e}")
+                                            send_whatsapp_message(from_id, f"An error occurred while processing your {msg_type}. Please try again.")
+                                    else:
+                                        send_whatsapp_message(from_id, f"Sorry, I couldn't retrieve your {msg_type}. Please try again.")
                                 else:
-                                    send_whatsapp_message(from_id, "Sorry, I couldn't retrieve your document. Please try again.")
+                                    # Handle if not in document upload mode
+                                    send_whatsapp_message(from_id, f"I received your {msg_type}, but I wasn't expecting a document right now. Please let me know how I can assist you!")
+
                     elif "statuses" in value:
                         status_info = value["statuses"][0]
                         print(f"Message to {status_info.get('recipient_id', 'unknown')} is now {status_info.get('status', 'unknown')}")
