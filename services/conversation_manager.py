@@ -480,6 +480,17 @@ async def process_conversation(
                     thanks = f"Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please find the link below to view your quotation: {link}"
                     send_whatsapp_message(from_id, thanks)
                     store_interaction(from_id, "Completion confirmation with link", thanks, user_states)
+                    
+                    # Add a delay before sending the review request
+                    await asyncio.sleep(2)
+                    
+                    # Send the review request with a clickable button
+                    from .whatsapp import send_link_button
+                    review_link = "https://www.google.com/search?client=ms-android-samsung-ss&sca_esv=4eb717e6f42bf628&sxsrf=AHTn8zprabdPVFL3C2gXo4guY8besI3jqQ:1744004771562&q=wehbe+insurance+services+llc+reviews&uds=ABqPDvy-z0dcsfm2PY76_gjn-YWou9-AAVQ4iWjuLR6vmDV0vf3KpBMNjU5ZkaHGmSY0wBrWI3xO9O55WuDmXbDq6a3SqlwKf2NJ5xQAjebIw44UNEU3t4CpFvpLt9qFPlVh2F8Gfv8sMuXXSo2Qq0M_ZzbXbg2c323G_bE4tVi7Ue7d_sW0CrnycpJ1CvV-OyrWryZw_TeQ3gLGDgzUuHD04MpSHquYZaSQ0_mIHLWjnu7fu8c7nb6_aGDb_H1Q-86fD2VmWluYA5jxRkC9U2NsSwSSXV4FPW9w1Q2T_Wjt6koJvLgtikd66MqwYiJPX2x9MwLhoGYlpTbKtkJuHwE9eM6wQgieChskow6tJCVjQ75I315dT8n3tUtasGdBkprOlUK9ibPrYr9HqRz4AwzEQaxAq9_EDcsSG_XW0CHuqi2lRKHw592MlGlhjyQibXKSZJh-v3KW4wIVqa-2x0k1wfbZdpaO3BZaKYCacLOxwUKTnXPbQqDPLQDeYgDBwaTLvaCN221H&si=APYL9bvoDGWmsM6h2lfKzIb8LfQg_oNQyUOQgna9TyfQHAoqUvvaXjJhb-NHEJtDKiWdK3OqRhtZNP2EtNq6veOxTLUq88TEa2J8JiXE33-xY1b8ohiuDLBeOOGhuI1U6V4mDc9jmZkDoxLC9b6s6V8MAjPhY-EC_g%3D%3D&sa=X&sqi=2&ved=2ahUKEwi05JSHnMWMAxUw8bsIHRRCDd0Qk8gLegQIHxAB&ictx=1&stq=1&cs=0&lei=o2bzZ_SGIrDi7_UPlIS16A0#ebo=1"
+                    review_message = "If you are satisfied with Wehbe(Broker) services, please leave a review for sharing happiness to others!!😊"
+                    send_link_button(from_id, review_message, "Click Here", review_link, user_states)
+                    store_interaction(from_id, "Review request sent", f"Review link: {review_link}", user_states)
+                    
                 else:
                     send_whatsapp_message(from_id, "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please wait for further assistance. If you have any questions, please contact support@insuranceclub.ae.")
                     store_interaction(from_id, "API error", "Failed to get valid ID", user_states)
@@ -504,7 +515,6 @@ async def process_conversation(
             send_whatsapp_message(from_id, code_question)
             store_interaction(from_id, "Bot re-asked for advisor code", code_question, user_states)
         return
-
     # Handle Motor Insurance flow
     elif state["stage"] == "motor_insurance_flow":
         # Store vehicle information

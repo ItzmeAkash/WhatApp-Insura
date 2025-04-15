@@ -398,3 +398,57 @@ def send_flow_message(to: str, flow_data: dict) -> bool:
         print(f"Error response: {response.text}")
     
     return response.status_code == 200
+
+
+def send_link_button(to: str, message: str, button_text: str, url: str, user_states: dict) -> bool:
+    """
+    Send a message with a clickable button that opens a URL
+    
+    Args:
+        to (str): The recipient's WhatsApp ID
+        message (str): The message text to send
+        button_text (str): Text to display on the button
+        url (str): URL to open when the button is clicked
+        user_states (dict): User states dictionary for logging
+        
+    Returns:
+        bool: True if the message was sent successfully
+    """
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {
+                "text": message
+            },
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": button_text,
+                    "url": url
+                }
+            }
+        }
+    }
+    
+    response = requests.post(WHATAPP_URL, headers=headers, json=payload)
+    print(f"Link button message sent to {to}, status code: {response.status_code}")
+    if response.status_code != 200:
+        print(f"Error response: {response.text}")
+    
+    store_interaction(
+        from_id=to,
+        question=message,
+        answer=f"[Link button: {button_text} -> {url}]",
+        user_states=user_states
+    )
+    
+    return response.status_code == 200

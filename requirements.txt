@@ -56,7 +56,7 @@ orjson==3.10.15
 packaging==24.2
 pandas==2.2.3
 pathlib==1.0.1
-pillow==11.2.0
+pillow==11.2.1
 propcache==0.3.0
 prov==2.0.1
 puremagic==1.28
