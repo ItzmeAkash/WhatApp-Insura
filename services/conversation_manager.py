@@ -162,21 +162,20 @@ async def process_conversation(
             user_states[from_id]["selected_service"] = selected_option
             user_states[from_id]["responses"]["service_type"] = selected_option
             store_interaction(from_id, INITIAL_QUESTIONS[0]["question"], f"Selected: {selected_option}", user_states)
+            
             if "Medical Insurance" in selected_option:
                 user_states[from_id]["stage"] = "medical_flow"
                 user_states[from_id]["question_index"] = 0
                 question = MEDICAL_QUESTIONS[0]["question"]
                 options = MEDICAL_QUESTIONS[0]["options"]
                 send_interactive_options(from_id, question, options, user_states)
+                
             elif "Motor Insurance" in selected_option:
-                user_states[from_id]["stage"] = "motor_insurance_flow"
-                motor_intro = "Great! I see you're interested in Motor Insurance. Let me help you with that."
-                send_whatsapp_message(from_id, motor_intro)
-                store_interaction(from_id, "Service selection", motor_intro, user_states)
-                await asyncio.sleep(1)
-                vehicle_question = "What is the year, make and model of your vehicle?"
-                send_whatsapp_message(from_id, vehicle_question)
-                store_interaction(from_id, "Bot asked about vehicle", vehicle_question, user_states)
+                user_states[from_id]["stage"] = "motor_insurance_vehicle_type"
+                vehicle_type_question = "What would you like to do today?"
+                send_interactive_options(from_id, vehicle_type_question, ["Car Insurance", "Bike Insurance"], user_states)
+                store_interaction(from_id, "Bot asked about vehicle type", vehicle_type_question, user_states)
+                            
             elif "Claim" in selected_option:
                 user_states[from_id]["stage"] = "claim_flow"
                 claim_intro = "I understand you want to file a claim. I'll guide you through the process."
@@ -188,12 +187,101 @@ async def process_conversation(
                 store_interaction(from_id, "Bot asked about claim type", claim_question, user_states)
         else:
             from .llm import process_message_with_llm
-            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)  # Note: LLM needs to be passed or initialized
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
             await asyncio.sleep(1)
             greeting_text = f"To continue with our guided assistance, please select one of the following options:"
             send_interactive_options(from_id, greeting_text, INITIAL_QUESTIONS[0]["options"], user_states)
         return
     
+    elif state["stage"] == "motor_insurance_vehicle_type":
+            selected_option = interactive_response.get("title") if interactive_response else None
+            
+            if selected_option in ["Car Insurance", "Bike Insurance"]:
+                vehicle_type = selected_option
+                user_states[from_id]["responses"]["vehicle_type"] = vehicle_type
+                store_interaction(from_id, "Vehicle type selection", f"Selected: {vehicle_type}", user_states)
+                
+                if vehicle_type == "Car Insurance":
+                    user_states[from_id]["stage"] = "motor_registration_city"
+                    registration_question = "Great choice! Let's start with your motor insurance details. Select the city of registration:"
+                    
+                    emirate_options = [
+                        "Abudhabi",
+                        "Ajman",
+                        "Dubai",
+                        "Fujairah",
+                        "Ras Al Khaimah",
+                        "Sharjah",
+                        "Umm Al Quwain"
+                    ]
+                    
+                    send_interactive_options(from_id, registration_question, emirate_options, user_states)
+                    store_interaction(from_id, "Bot asked about registration city", registration_question, user_states)
+                
+                else:  # Bike
+                    user_states[from_id]["stage"] = "motor_insurance_flow"
+                    vehicle_question = "Thank you. What is the year, make, and model of your bike?"
+                    send_whatsapp_message(from_id, vehicle_question)
+                    store_interaction(from_id, "Bot asked about vehicle", vehicle_question, user_states)
+                    user_states[from_id]["responses"]["motor_question_vehicle"] = vehicle_question
+            else:
+                from .llm import process_message_with_llm
+                await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+                await asyncio.sleep(1)
+                vehicle_type_question = "What would you like to do today?"
+                send_interactive_options(from_id, vehicle_type_question, ["Car Insurance", "Bike Insurance"], user_states)
+            return
+
+    # New stage for motor registration city (for cars only)
+    elif state["stage"] == "motor_registration_city":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        emirate_options = [
+            "Abudhabi", "Ajman", "Dubai", "Fujairah", 
+            "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"
+        ]
+        
+        if selected_option in emirate_options:
+            user_states[from_id]["responses"]["registration_city"] = selected_option
+            store_interaction(from_id, "Registration city selection", f"Selected: {selected_option}", user_states)
+            
+            # Move to ID upload or manual entry, similar to medical flow
+            user_states[from_id]["stage"] = "motor_member_input_method"
+            member_question = "Thank you! Now, we need the details of the car owner. Would you like to upload their Emirates ID or manually enter the information?"
+            send_yes_no_options(from_id, member_question, user_states)
+            store_interaction(from_id, "Bot asked about ID upload/manual entry", member_question, user_states)
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            registration_question = "Please select the city of registration:"
+            send_interactive_options(from_id, registration_question, emirate_options, user_states)
+        return
+
+    # New stage for motor owner ID input method selection
+
+    elif state['stage'] == "motor_member_input_method":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        if selected_option == "Yes":
+            upload_question = "Please Upload Your Document"
+            send_whatsapp_message(from_id, upload_question)
+            store_interaction(from_id, "Bot requested document upload", upload_question, user_states)
+            user_states[from_id]["stage"] = "motor_upload_document"
+        elif selected_option == "No":
+            name_question = "Next, we need the details of the member for whom the policy is being purchased. Please provide Name"
+            send_whatsapp_message(from_id, name_question)
+            store_interaction(from_id, "Bot asked for member name", name_question, user_states)
+            user_states[from_id]["responses"]["motor_question_member_name"] = name_question
+            user_states[from_id]["stage"] = "motor_member_name"
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            member_question = "Next, we need the details of the member. Would you like to upload their Emirates ID or manually enter the information?"
+            send_yes_no_options(from_id, member_question, user_states)
+        return
+ 
+
     elif state["stage"] == "medical_flow":
         question_index = state["question_index"]
         if question_index < len(MEDICAL_QUESTIONS):

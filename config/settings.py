@@ -97,3 +97,46 @@ COMPANY_NUMBER_MAPPING = {
     "Takaful Emarat(NAS)": 17,
     "Takaful emarat(Nextcare)": 18,
 }
+
+MOTOR_VEHICLE_OPTIONS = [
+    "Car Insurance",
+    "Bike Insurance"
+]
+
+MOTOR_CITY_OPTIONS = [
+    "Abudhabi",
+    "Ajman", 
+    "Dubai", 
+    "Fujairah", 
+    "Ras Al Khaimah", 
+    "Sharjah", 
+    "Umm Al Quwain"
+]
+
+# Define all the motor insurance flow questions
+# MOTOR_QUESTIONS = [
+#     {
+#         "question": "Great Choice! Let's start with your Motor insurance details. Select the city of registration:",
+#         "options": MOTOR_CITY_OPTIONS
+#     },
+#     {
+#         "question": "Thank you! Now, let's move on to: Next, we need the details of the car owner. Would you like to upload their Emirates ID or manually enter the information?",
+#         "options": ["Yes", "No"]  
+#     }
+# ]
+
+
+MOTOR_QUESTIONS = [
+    {
+        "question": "Great Choice! Let's start with your Motor insurance details. Select the city of registration:",
+        "options": [
+            "Abudhabi",
+            "Ajman", 
+            "Dubai", 
+            "Fujairah", 
+            "Ras Al Khaimah", 
+            "Sharjah", 
+            "Umm Al Quwain"
+        ]
+    }
+]
