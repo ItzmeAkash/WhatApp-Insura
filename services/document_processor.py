@@ -376,7 +376,7 @@ async def proceed_without_edits(from_id: str, user_states: dict):
     # Move to the next stage in the flow without showing summarys
     user_states[from_id]["stage"] = "medical_marital_status"
     
-    # Ask the next question in the flow using interactive options
+    # Ask the next question in the flow using interactive optionss
     marital_question = f"Please confirm the marital status of {verified_info.get('name', 'the member')}"
     send_interactive_options(from_id, marital_question, ["Single", "Married"], user_states)
     store_interaction(from_id, "Bot asked for marital status", marital_question, user_states)
