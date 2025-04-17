@@ -373,7 +373,7 @@ async def proceed_without_edits(from_id: str, user_states: dict):
     user_states[from_id]["responses"]["member_dob"] = verified_info.get("date_of_birth", "")
     user_states[from_id]["responses"]["member_gender"] = verified_info.get("gender", "")
     
-    # Move to the next stage in the flow without showing summary
+    # Move to the next stage in the flow without showing summarys
     user_states[from_id]["stage"] = "medical_marital_status"
     
     # Ask the next question in the flow using interactive options
