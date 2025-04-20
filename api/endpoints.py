@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
-from services.document_processor import merge_id_information, process_uploaded_document,  display_extracted_info
+from services.document_processor import display_license_extracted_info, display_mulkiya_extracted_info, merge_id_information, process_uploaded_document,  display_extracted_info, process_uploaded_license_document, process_uploaded_mulkiya_document
 from services.voiceText import transcribe_audio
 from services.whatsapp import download_whatsapp_audio, download_whatsapp_media, send_whatsapp_message
 from services.conversation_manager import process_conversation
@@ -110,47 +110,55 @@ async def webhook(request: Request):
                                 media_id = messages[0].get("image", {}).get("id")
                                 mime_type = "image/jpeg"  # WhatsApp typically sends JPEGs
                                 filename = f"{msg_type}-{media_id}.jpg"
-                                
+
                             if media_id:
                                 print(f"Received {msg_type} from {from_id}: {filename}")
                                 
+                                # Determine the flow type based on stage
+                                flow_type = None
+                                if from_id in user_states:
+                                    if user_states[from_id]["stage"] in ["medical_upload_document", "waiting_for_back_id"]:
+                                        flow_type = "medical"
+                                    elif user_states[from_id]["stage"] in ["motor_upload_document", "waiting_for_back_id"]:
+                                        flow_type = "motor"
+
                                 # Check if we're waiting for back side of Emirates ID
                                 if from_id in user_states and user_states[from_id]["stage"] == "waiting_for_back_id":
                                     media_data = download_whatsapp_media(media_id)
                                     if media_data:
                                         try:
                                             send_whatsapp_message(from_id, f"Received the back side of your Emirates ID. Processing now, please wait...")
-                                            back_extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states)
+                                            back_extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states, flow_type)
                                             if back_extracted_info:
                                                 print(f"Extracted info from back side: {back_extracted_info}")
                                                 # Merge information from front and back sides
-                                                asyncio.create_task(merge_id_information(from_id, back_extracted_info, user_states))
+                                                asyncio.create_task(merge_id_information(from_id, back_extracted_info, user_states, flow_type))
                                             else:
                                                 send_whatsapp_message(from_id, "Sorry, I couldn't extract information from the back side of your ID. Let's proceed with the information we have.")
                                                 # Display front side information only
-                                                asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
+                                                asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states, flow_type))
                                         except Exception as e:
                                             print(f"Error processing back side {msg_type}: {e}")
                                             send_whatsapp_message(from_id, "An error occurred while processing the back side of your ID. Let's proceed with the information we have.")
                                             # Display front side information only
-                                            asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
+                                            asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states, flow_type))
                                     else:
                                         send_whatsapp_message(from_id, "Sorry, I couldn't retrieve the back side of your ID. Let's proceed with the information we have.")
                                         # Display front side information only
-                                        asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states))
+                                        asyncio.create_task(display_extracted_info(from_id, user_states[from_id]["verified_info"], user_states, flow_type))
                                     return {"status": "success"}
-                                    
+
                                 # Check if user is in the stage for document upload
-                                elif from_id in user_states and user_states[from_id]["stage"] == "medical_upload_document":
+                                elif from_id in user_states and user_states[from_id]["stage"] in ["medical_upload_document", "motor_upload_document"]:
                                     media_data = download_whatsapp_media(media_id)
                                     if media_data:
                                         try:
                                             send_whatsapp_message(from_id, f"Received your Emirates ID. Processing now, please wait...")
-                                            extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states)
+                                            extracted_info = await process_uploaded_document(from_id, media_data, mime_type, filename, user_states, flow_type)
                                             if extracted_info:
                                                 print(f"Extracted info: {extracted_info}")
                                                 # Check if card_number is missing and handle accordingly
-                                                asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states))
+                                                asyncio.create_task(display_extracted_info(from_id, extracted_info, user_states, flow_type))
                                             else:
                                                 send_whatsapp_message(from_id, f"Sorry, I couldn't extract information from your {msg_type}. Please try again or enter the details manually.")
                                         except Exception as e:
@@ -158,10 +166,44 @@ async def webhook(request: Request):
                                             send_whatsapp_message(from_id, f"An error occurred while processing your {msg_type}. Please try again.")
                                     else:
                                         send_whatsapp_message(from_id, f"Sorry, I couldn't retrieve your {msg_type}. Please try again.")
-                                else:
-                                    # Handle if not in document upload mode
-                                    send_whatsapp_message(from_id, f"I received your {msg_type}, but I wasn't expecting a document right now. Please let me know how I can assist you!")
+                                
+                                elif from_id in user_states and user_states[from_id]["stage"] in ["motor_driving_license"]:
+                                    media_data = download_whatsapp_media(media_id)
+                                    if media_data:
+                                        try:
+                                            send_whatsapp_message(from_id, f"Received your Driving License. Processing now, please wait...")
+                                            extracted_info = await process_uploaded_license_document(from_id, media_data, mime_type, filename, user_states, flow_type)
+                                            if extracted_info:
+                                                print(f"Extracted info: {extracted_info}")
+                                                # Check if card_number is missing and handle accordingly
+                                                asyncio.create_task(display_license_extracted_info(from_id, extracted_info, user_states, flow_type))
+                                            else:
+                                                send_whatsapp_message(from_id, f"Sorry, I couldn't extract information from your {msg_type}. Please try again or enter the details manually.")
+                                        except Exception as e:
+                                            print(f"Error processing {msg_type}: {e}")
+                                            send_whatsapp_message(from_id, f"An error occurred while processing your {msg_type}. Please try again.")
+                                    else:
+                                        send_whatsapp_message(from_id, f"Sorry, I couldn't retrieve your {msg_type}. Please try again.")
 
+                                elif from_id in user_states and user_states[from_id]["stage"] in ["motor_vechile_mulkiya"]:
+                                    media_data = download_whatsapp_media(media_id)
+                                    if media_data:
+                                        try:
+                                            send_whatsapp_message(from_id, f"Received your Vechile Mulkiya. Processing now, please wait...")
+                                            extracted_info = await process_uploaded_mulkiya_document(from_id, media_data, mime_type, filename, user_states, flow_type)
+                                            if extracted_info:
+                                                print(f"Extracted info: {extracted_info}")
+                                                # Check if card_number is missing and handle accordingly
+                                                asyncio.create_task(display_mulkiya_extracted_info(from_id, extracted_info, user_states, flow_type))
+                                            else:
+                                                send_whatsapp_message(from_id, f"Sorry, I couldn't extract information from your {msg_type}. Please try again or enter the details manually.")
+                                        except Exception as e:
+                                            print(f"Error processing {msg_type}: {e}")
+                                            send_whatsapp_message(from_id, f"An error occurred while processing your {msg_type}. Please try again.")
+                                    else:
+                                        send_whatsapp_message(from_id, f"Sorry, I couldn't retrieve your {msg_type}. Please try again.")
+
+                
                     elif "statuses" in value:
                         status_info = value["statuses"][0]
                         print(f"Message to {status_info.get('recipient_id', 'unknown')} is now {status_info.get('status', 'unknown')}")

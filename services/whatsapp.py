@@ -93,7 +93,6 @@ def send_interactive_list(recipient: str, text: str, options: list, user_states:
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
-    
     # Limit to 10 options and truncate titles to 24 characters
     limited_options = options[:10]
     rows = [

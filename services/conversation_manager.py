@@ -34,6 +34,8 @@ async def process_conversation(
     "expiry_date", "gender", "card_number", "occupation", "employer", "issuing_place"
 ]
     
+    
+    
     state = user_states[from_id]
     if "emaf" in text.lower() or "emf" in text.lower() and state["stage"] not in ["emaf_name", "emaf_phone", "emaf_company"]:
             user_states[from_id]["stage"] = "emaf_name"
@@ -164,17 +166,21 @@ async def process_conversation(
             store_interaction(from_id, INITIAL_QUESTIONS[0]["question"], f"Selected: {selected_option}", user_states)
             
             if "Medical Insurance" in selected_option:
+                state["service_type"] = selected_option
                 user_states[from_id]["stage"] = "medical_flow"
                 user_states[from_id]["question_index"] = 0
                 question = MEDICAL_QUESTIONS[0]["question"]
                 options = MEDICAL_QUESTIONS[0]["options"]
                 send_interactive_options(from_id, question, options, user_states)
+                user_states[from_id] = state
                 
             elif "Motor Insurance" in selected_option:
+                state["service_type"] = selected_option
                 user_states[from_id]["stage"] = "motor_insurance_vehicle_type"
                 vehicle_type_question = "What would you like to do today?"
                 send_interactive_options(from_id, vehicle_type_question, ["Car Insurance", "Bike Insurance"], user_states)
                 store_interaction(from_id, "Bot asked about vehicle type", vehicle_type_question, user_states)
+                user_states[from_id] = state
                             
             elif "Claim" in selected_option:
                 user_states[from_id]["stage"] = "claim_flow"
@@ -232,54 +238,6 @@ async def process_conversation(
                 send_interactive_options(from_id, vehicle_type_question, ["Car Insurance", "Bike Insurance"], user_states)
             return
 
-    # New stage for motor registration city (for cars only)
-    elif state["stage"] == "motor_registration_city":
-        selected_option = interactive_response.get("title") if interactive_response else None
-        
-        emirate_options = [
-            "Abudhabi", "Ajman", "Dubai", "Fujairah", 
-            "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"
-        ]
-        
-        if selected_option in emirate_options:
-            user_states[from_id]["responses"]["registration_city"] = selected_option
-            store_interaction(from_id, "Registration city selection", f"Selected: {selected_option}", user_states)
-            
-            # Move to ID upload or manual entry, similar to medical flow
-            user_states[from_id]["stage"] = "motor_member_input_method"
-            member_question = "Thank you! Now, we need the details of the car owner. Would you like to upload their Emirates ID or manually enter the information?"
-            send_yes_no_options(from_id, member_question, user_states)
-            store_interaction(from_id, "Bot asked about ID upload/manual entry", member_question, user_states)
-        else:
-            from .llm import process_message_with_llm
-            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
-            await asyncio.sleep(1)
-            registration_question = "Please select the city of registration:"
-            send_interactive_options(from_id, registration_question, emirate_options, user_states)
-        return
-
-    # New stage for motor owner ID input method selection
-
-    elif state['stage'] == "motor_member_input_method":
-        selected_option = interactive_response.get("title") if interactive_response else None
-        if selected_option == "Yes":
-            upload_question = "Please Upload Your Document"
-            send_whatsapp_message(from_id, upload_question)
-            store_interaction(from_id, "Bot requested document upload", upload_question, user_states)
-            user_states[from_id]["stage"] = "motor_upload_document"
-        elif selected_option == "No":
-            name_question = "Next, we need the details of the member for whom the policy is being purchased. Please provide Name"
-            send_whatsapp_message(from_id, name_question)
-            store_interaction(from_id, "Bot asked for member name", name_question, user_states)
-            user_states[from_id]["responses"]["motor_question_member_name"] = name_question
-            user_states[from_id]["stage"] = "motor_member_name"
-        else:
-            from .llm import process_message_with_llm
-            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
-            await asyncio.sleep(1)
-            member_question = "Next, we need the details of the member. Would you like to upload their Emirates ID or manually enter the information?"
-            send_yes_no_options(from_id, member_question, user_states)
-        return
  
 
     elif state["stage"] == "medical_flow":
@@ -770,6 +728,8 @@ async def process_conversation(
             await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Is all the information correct?", user_states)
+            
+            
         return
 
     # Handle selection of field to edit
@@ -817,8 +777,7 @@ async def process_conversation(
             
             # Proceed with the verified information
             from services.document_processor import proceed_with_verified_document
-            await proceed_with_verified_document(from_id, user_states)
-            
+            await proceed_with_verified_document(from_id, user_states)   
         elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
             store_interaction(from_id, "Final document confirmation", "User indicated information still needs editing", user_states)
             
@@ -831,6 +790,8 @@ async def process_conversation(
             await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Is all the information correct now?", user_states)
+        
+        user_states[from_id] = state  # Persist state changes
         return
 
     # Handler for checking if user wants to continue editing
@@ -852,4 +813,374 @@ async def process_conversation(
             await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Would you like to edit another field?", user_states)
+        return
+    
+
+
+   # New stage for motor registration city (for cars only)
+    elif state["stage"] == "motor_registration_city":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        emirate_options = [
+            "Abudhabi", "Ajman", "Dubai", "Fujairah", 
+            "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"
+        ]
+        
+        if selected_option in emirate_options:
+            user_states[from_id]["responses"]["registration_city"] = selected_option
+            store_interaction(from_id, "Registration city selection", f"Selected: {selected_option}", user_states)
+            
+            # Move to ID upload or manual entry, similar to medical flow
+            user_states[from_id]["stage"] = "motor_member_input_method"
+            member_question = "Thank you! Now, we need the details of the car owner. Would you like to upload their Emirates ID or manually enter the information?"
+            send_yes_no_options(from_id, member_question, user_states)
+            store_interaction(from_id, "Bot asked about ID upload/manual entry", member_question, user_states)
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            registration_question = "Please select the city of registration:"
+            send_interactive_options(from_id, registration_question, emirate_options, user_states)
+        return
+
+    # New stage for motor owner ID input method selection
+
+    elif state['stage'] == "motor_member_input_method":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        if selected_option == "Yes":
+            upload_question = "Please Upload Your Document"
+            send_whatsapp_message(from_id, upload_question)
+            store_interaction(from_id, "Bot requested document upload", upload_question, user_states)
+            user_states[from_id]["stage"] = "motor_upload_document"
+        elif selected_option == "No":
+            name_question = "Next, we need the details of the member for whom the policy is being purchased. Please provide Name"
+            send_whatsapp_message(from_id, name_question)
+            store_interaction(from_id, "Bot asked for member name", name_question, user_states)
+            user_states[from_id]["responses"]["motor_question_member_name"] = name_question
+            user_states[from_id]["stage"] = "motor_member_name"
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            member_question = "Next, we need the details of the member. Would you like to upload their Emirates ID or manually enter the information?"
+            send_yes_no_options(from_id, member_question, user_states)
+        return
+ 
+    elif state["stage"] == "motor_upload_document":
+        # This stage acts as a waiting state; actual document processing is handled by the webhook
+        send_whatsapp_message(from_id, "Thank you for uploading your document. I'm processing it now, please wait a moment...")
+        store_interaction(from_id, "Document upload received", "Processing started", user_states)
+        # No further action here; the webhook will handle the document and transition to verification
+        return
+    
+    elif state["stage"] == "motor_member_name":
+            member_name = text.strip()
+            user_states[from_id]["responses"]["member_name"] = member_name
+            store_interaction(from_id, "Member name question", f"Response: {member_name}", user_states)
+            
+            dob_question = "Date of Birth (DOB)"
+            send_whatsapp_message(from_id, dob_question)
+            store_interaction(from_id, "Bot asked for member DOB", dob_question, user_states)
+            user_states[from_id]["responses"]["motor_question_member_dob"] = dob_question
+            user_states[from_id]["stage"] = "motor_member_dob"
+            return
+
+    elif state["stage"] == "motor_member_dob":
+        motor_member_dob = text.strip()
+        user_states[from_id]["responses"]["motor_member_dob"] = motor_member_dob
+        store_interaction(from_id, "Member DOB question", f"Response: {motor_member_dob}", user_states)
+        
+        gender_question = f"Thanks!Lets's continue.Please confirm the gender of {user_states[from_id]['responses']['motor_member_name']}"
+        send_interactive_options(from_id, gender_question, ["Male", "Female"], user_states)
+        store_interaction(from_id, "Bot asked for member gender", gender_question, user_states)
+        user_states[from_id]["responses"]["motor_question_member_gender"] = gender_question
+        user_states[from_id]["stage"] = "motor_member_gender"
+        return
+
+    elif state["stage"] == "motor_member_gender":
+            selected_gender = interactive_response.get("title") if interactive_response else None
+            if selected_gender in ["Male", "Female"]:
+                user_states[from_id]["responses"]["motor_member_gender"] = selected_gender
+                store_interaction(from_id, "Member gender question", f"Selected: {selected_gender}", user_states)
+                
+                license_question = f"Thank you for uploading the document,Now,Let's move on to: Please Uplaod your Driving License"
+                send_interactive_options(from_id, marital_question, user_states)
+                store_interaction(from_id, "Bot asked for upload driving license", user_states)
+                user_states[from_id]["responses"]["motor_driving_license"] = license_question
+                user_states[from_id]["stage"] = "motor_driving_license"
+            else:
+                from .llm import process_message_with_llm
+                await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+                await asyncio.sleep(1)
+                gender_question = f"Please confirm the gender of {user_states[from_id]['responses']['member_name']}"
+                send_interactive_options(from_id, gender_question, ["Male", "Female"], user_states)
+            return
+    
+    elif state["stage"] == "motor_driving_license":
+        # This stage acts as a waiting state; actual document processing is handled by the webhook
+        send_whatsapp_message(from_id, "Thank you for uploading your driving license. I'm processing it now, please wait a moment...")
+        store_interaction(from_id, "Document upload received", "Processing started", user_states)
+        # No further action here; the webhook will handle the document and transition to verification
+        return
+    
+    
+
+#Todo
+# After document upload and information display, handle confirmation
+    elif state["stage"] == "lience_document_info_confirmation":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "License document information confirmation", "User confirmed information is correct", user_states)
+            
+            # Skip editing and proceed to next stage without showing summary
+            from services.document_processor import proceed__license_without_edits
+            await proceed__license_without_edits(from_id, user_states, "motor")
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "License document information confirmation", "User indicated information needs editing", user_states)
+            
+            # Start the editing process
+            from services.document_processor import handle_lience_document_edit
+            await handle_lience_document_edit(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Is all the information correct?", user_states)
+        return
+
+    # Handle selection of field to edit
+    elif state["stage"] == "license_select_field_to_edit":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Done Editing":
+            # Complete the editing process and move forward
+            store_interaction(from_id, "Field selection for editing", "User completed editing", user_states)
+            from services.document_processor import complete_licence_document_editing
+            await complete_licence_document_editing(from_id, user_states)
+            
+        elif selected_option:
+            # User selected a field to edit
+            store_interaction(from_id, "Field selection for editing", f"User selected: {selected_option}", user_states)
+            from services.document_processor import handle_lience_document_edit
+            await handle_lience_document_edit(from_id, user_states, selected_option)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            
+            # Re-show the editing options
+            from services.document_processor import handle_lience_document_edit
+            await handle_lience_document_edit(from_id, user_states)
+        return
+
+    # Handle user entering a new value for the field
+    elif state["stage"] == "lience_entering_new_value":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        new_value = selected_option if selected_option else text
+        
+        store_interaction(from_id, f"New value for {state.get('lience_editing_field', 'field')}", f"User entered: {new_value}", user_states)
+        from services.document_processor import handle_lience_document_edit
+        await handle_lience_document_edit(from_id, user_states, None, new_value)
+        return
+
+    # Handle final confirmation after editing is complete
+    elif state["stage"] == "lience_final_document_confirmation":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "Final document confirmation", "User confirmed information is correct", user_states)
+            
+            # Proceed with the verified information
+            from services.document_processor import proceed_with_license_verified_document
+            await proceed_with_license_verified_document(from_id, user_states)
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "Final document confirmation", "User indicated information still needs editing", user_states)
+            
+            # Go back to editing
+            from services.document_processor import handle_lience_document_edit
+            await handle_lience_document_edit(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Is all the information correct now?", user_states)
+        return
+
+    # Handler for checking if user wants to continue editing
+    elif state["stage"] == "licnese_check_continue_editing":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "Continue editing check", "User wants to edit more fields", user_states)
+            from services.document_processor import handle_lience_document_edit
+            await handle_lience_document_edit(from_id, user_states)
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "Continue editing check", "User is done editing", user_states)
+            from services.document_processor import complete_licence_document_editing
+            await complete_licence_document_editing(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Would you like to edit another field?", user_states)
+        return
+    
+
+
+
+#Todo Mulkiya
+    elif state["stage"] == "motor_vechile_mulkiya":
+        # This stage acts as a waiting state; actual document processing is handled by the webhook
+        send_whatsapp_message(from_id, "Thank you for uploading your Mulkiya. I'm processing it now, please wait a moment...")
+        store_interaction(from_id, "Document upload received", "Processing started", user_states)
+        # No further action here; the webhook will handle the document and transition to verification
+        return
+    
+    
+
+
+# After document upload and information display, handle confirmation
+    elif state["stage"] == "mulkiya_document_info_confirmation":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "License document information confirmation", "User confirmed information is correct", user_states)
+            
+            # Skip editing and proceed to next stage without showing summary
+            from services.document_processor import proceed__mulkiya_without_edits
+            await proceed__mulkiya_without_edits(from_id, user_states, "motor")
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "Vehcile Mulkiya document information confirmation", "User indicated information needs editing", user_states)
+            
+            # Start the editing process
+            from services.document_processor import handle_mulkiya_document_edit
+            await handle_mulkiya_document_edit(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Is all the information correct?", user_states)
+        return
+
+    # Handle selection of field to edit
+    elif state["stage"] == "mulkiya_select_field_to_edit":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Done Editing":
+            # Complete the editing process and move forward
+            store_interaction(from_id, "Field selection for editing", "User completed editing", user_states)
+            from services.document_processor import complete_mulkiya_document_editing
+            await complete_mulkiya_document_editing(from_id, user_states)
+            
+        elif selected_option:
+            # User selected a field to edit
+            store_interaction(from_id, "Field selection for editing", f"User selected: {selected_option}", user_states)
+            from services.document_processor import handle_mulkiya_document_edit
+            await handle_mulkiya_document_edit(from_id, user_states, selected_option)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            
+            # Re-show the editing options
+            from services.document_processor import handle_mulkiya_document_edit
+            await handle_mulkiya_document_edit(from_id, user_states)
+        return
+
+    # Handle user entering a new value for the field
+    elif state["stage"] == "mulkiya_entering_new_value":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        new_value = selected_option if selected_option else text
+        
+        store_interaction(from_id, f"New value for {state.get('mulkiya_editing_field', 'field')}", f"User entered: {new_value}", user_states)
+        from services.document_processor import handle_mulkiya_document_edit
+        await handle_mulkiya_document_edit(from_id, user_states, None, new_value)
+        return
+
+    # Handle final confirmation after editing is complete
+    elif state["stage"] == "mulkiya_final_document_confirmation":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "Final document confirmation", "User confirmed information is correct", user_states)
+            
+            # Proceed with the verified information
+            from services.document_processor import proceed_with_mulkiya_verified_document
+            await proceed_with_mulkiya_verified_document(from_id, user_states)
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "Final document confirmation", "User indicated information still needs editing", user_states)
+            
+            # Go back to editing
+            from services.document_processor import handle_mulkiya_document_edit
+            await handle_mulkiya_document_edit(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Is all the information correct now?", user_states)
+        return
+
+    # Handler for checking if user wants to continue editing
+    elif state["stage"] == "mulkiya_check_continue_editing":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        if selected_option == "Yes" or text.lower() in ["yes", "yeah", "yep", "sure", "ok", "okay"]:
+            store_interaction(from_id, "Continue editing check", "User wants to edit more fields", user_states)
+            from services.document_processor import handle_mulkiya_document_edit
+            await handle_mulkiya_document_edit(from_id, user_states)
+            
+        elif selected_option == "No" or text.lower() in ["no", "nope", "nah"]:
+            store_interaction(from_id, "Continue editing check", "User is done editing", user_states)
+            from services.document_processor import complete_mulkiya_document_editing
+            await complete_mulkiya_document_editing(from_id, user_states)
+            
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Would you like to edit another field?", user_states)
+        return
+    
+    
+
+    elif state["stage"] == "motor_vehicle_wish_to_buy":
+        selected_wish_to_buy = interactive_response.get("title") if interactive_response else None
+        valid_wish_to_buy = ["Comprehensive", "Third Party"]
+        # Normalize text input for fallback case
+        text_response = text.strip().lower()
+        if text_response in ["comprehensive", "third party"]:
+            selected_wish_to_buy = "Comprehensive" if text_response == "comprehensive" else "Third Party"
+        
+        if selected_wish_to_buy in valid_wish_to_buy:
+            user_states[from_id]["responses"]["motor_vehicle_wish_to_buy"] = selected_wish_to_buy
+            store_interaction(from_id, "Motor wish to buy question", f"Selected: {selected_wish_to_buy}", user_states)
+            user_states[from_id]["stage"] = "completed"
+            user_json = json.dumps(user_states[from_id]["responses"], indent=2)
+            print(f"User data collected for {from_id}: {user_json}")
+            thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry.Please wait for further  assistance. if you have any questions,Please contact support@insuranceclub.ae"
+            send_whatsapp_message(from_id, thanks)
+            store_interaction(from_id, "Completion confirmation", thanks, user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
+            user_states[from_id]["stage"] = "waiting_for_new_query"
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            wish_to_buy_question = "What type of insurance would you like to buy?"
+            send_interactive_options(from_id, wish_to_buy_question, valid_wish_to_buy, user_states)
+            store_interaction(from_id, "Bot re-asked for wish to buy", wish_to_buy_question, user_states)
         return
