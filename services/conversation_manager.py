@@ -225,11 +225,21 @@ async def process_conversation(
                     store_interaction(from_id, "Bot asked about registration city", registration_question, user_states)
                 
                 else:  # Bike
-                    user_states[from_id]["stage"] = "motor_insurance_flow"
-                    vehicle_question = "Thank you. What is the year, make, and model of your bike?"
-                    send_whatsapp_message(from_id, vehicle_question)
-                    store_interaction(from_id, "Bot asked about vehicle", vehicle_question, user_states)
-                    user_states[from_id]["responses"]["motor_question_vehicle"] = vehicle_question
+                    user_states[from_id]["stage"] = "motor_bike_registration_city"
+                    registration_question = "Great choice! Let's start with your motor insurance details. Select the city of registration:"
+                    
+                    emirate_options = [
+                        "Abudhabi",
+                        "Ajman",
+                        "Dubai",
+                        "Fujairah",
+                        "Ras Al Khaimah",
+                        "Sharjah",
+                        "Umm Al Quwain"
+                    ]
+                    
+                    send_interactive_options(from_id, registration_question, emirate_options, user_states)
+                    store_interaction(from_id, "Bot asked about registration city", registration_question, user_states)
             else:
                 from .llm import process_message_with_llm
                 await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
@@ -562,71 +572,71 @@ async def process_conversation(
             store_interaction(from_id, "Bot re-asked for advisor code", code_question, user_states)
         return
     # Handle Motor Insurance flow
-    elif state["stage"] == "motor_insurance_flow":
-        # Store vehicle information
-        vehicle_info = text.strip()
-        user_states[from_id]["responses"]["vehicle_info"] = vehicle_info
-        store_interaction(from_id, "What is the year, make and model of your vehicle?", f"Response: {vehicle_info}",user_states)
-        user_states[from_id]["responses"]["motor_question_vehicle"] = "What is the year, make and model of your vehicle?"
+    # elif state["stage"] == "motor_insurance_flow":
+    #     # Store vehicle information
+    #     vehicle_info = text.strip()
+    #     user_states[from_id]["responses"]["vehicle_info"] = vehicle_info
+    #     store_interaction(from_id, "What is the year, make and model of your vehicle?", f"Response: {vehicle_info}",user_states)
+    #     user_states[from_id]["responses"]["motor_question_vehicle"] = "What is the year, make and model of your vehicle?"
         
-        user_states[from_id]["stage"] = "motor_insurance_driver"
-        driving_question = "Thank you. How many years have you been driving?"
-        send_whatsapp_message(from_id, driving_question)
-        store_interaction(from_id, "Bot asked about driving experience", driving_question,user_states)
-        user_states[from_id]["responses"]["motor_question_driving"] = driving_question
-        return
+    #     user_states[from_id]["stage"] = "motor_insurance_driver"
+    #     driving_question = "Thank you. How many years have you been driving?"
+    #     send_whatsapp_message(from_id, driving_question)
+    #     store_interaction(from_id, "Bot asked about driving experience", driving_question,user_states)
+    #     user_states[from_id]["responses"]["motor_question_driving"] = driving_question
+    #     return
         
-    # Motor Insurance flow - driving experience
-    elif state["stage"] == "motor_insurance_driver":
-        driving_exp = text.strip()
-        user_states[from_id]["responses"]["driving_experience"] = driving_exp
-        store_interaction(from_id, "Driving experience question", f"Response: {driving_exp}",user_states)
+    # # Motor Insurance flow - driving experience
+    # elif state["stage"] == "motor_insurance_driver":
+    #     driving_exp = text.strip()
+    #     user_states[from_id]["responses"]["driving_experience"] = driving_exp
+    #     store_interaction(from_id, "Driving experience question", f"Response: {driving_exp}",user_states)
         
-        user_states[from_id]["stage"] = "motor_insurance_coverage"
-        coverage_question = "What type of coverage are you looking for? (Comprehensive, Third Party Only, etc.)"
-        send_whatsapp_message(from_id, coverage_question)
-        store_interaction(from_id, "Bot asked about coverage", coverage_question,user_states)
-        user_states[from_id]["responses"]["motor_question_coverage"] = coverage_question
-        return
+    #     user_states[from_id]["stage"] = "motor_insurance_coverage"
+    #     coverage_question = "What type of coverage are you looking for? (Comprehensive, Third Party Only, etc.)"
+    #     send_whatsapp_message(from_id, coverage_question)
+    #     store_interaction(from_id, "Bot asked about coverage", coverage_question,user_states)
+    #     user_states[from_id]["responses"]["motor_question_coverage"] = coverage_question
+    #     return
         
-    # Motor Insurance flow - coverage type
-    elif state["stage"] == "motor_insurance_coverage":
-        coverage_type = text.strip()
-        user_states[from_id]["responses"]["desired_coverage"] = coverage_type
-        store_interaction(from_id, "Coverage type question", f"Response: {coverage_type}",user_states)
+    # # Motor Insurance flow - coverage type
+    # elif state["stage"] == "motor_insurance_coverage":
+    #     coverage_type = text.strip()
+    #     user_states[from_id]["responses"]["desired_coverage"] = coverage_type
+    #     store_interaction(from_id, "Coverage type question", f"Response: {coverage_type}",user_states)
         
-        user_states[from_id]["stage"] = "motor_insurance_contact"
-        contact_question = "Thank you for providing that information. What's your phone number and preferred contact time?"
-        send_whatsapp_message(from_id, contact_question)
-        store_interaction(from_id, "Bot asked for contact details", contact_question)
-        user_states[from_id]["responses"]["motor_question_contact"] = contact_question
-        return
+    #     user_states[from_id]["stage"] = "motor_insurance_contact"
+    #     contact_question = "Thank you for providing that information. What's your phone number and preferred contact time?"
+    #     send_whatsapp_message(from_id, contact_question)
+    #     store_interaction(from_id, "Bot asked for contact details", contact_question)
+    #     user_states[from_id]["responses"]["motor_question_contact"] = contact_question
+    #     return
         
-    # Motor Insurance flow - contact info and completion
-    elif state["stage"] == "motor_insurance_contact":
-        contact_info = text.strip()
-        user_states[from_id]["responses"]["contact_info"] = contact_info
-        store_interaction(from_id, "Contact info question", f"Response: {contact_info}")
-        user_states[from_id]["stage"] = "completed"
+    # # Motor Insurance flow - contact info and completion
+    # elif state["stage"] == "motor_insurance_contact":
+    #     contact_info = text.strip()
+    #     user_states[from_id]["responses"]["contact_info"] = contact_info
+    #     store_interaction(from_id, "Contact info question", f"Response: {contact_info}")
+    #     user_states[from_id]["stage"] = "completed"
         
-        # Create a summary JSON of the user's responses
-        user_json = json.dumps(user_states[from_id]["responses"], indent=2)
-        print(f"User data collected for {from_id}: {user_json}")
+    #     # Create a summary JSON of the user's responses
+    #     user_json = json.dumps(user_states[from_id]["responses"], indent=2)
+    #     print(f"User data collected for {from_id}: {user_json}")
         
-        # Send confirmation to user
-        confirmation1 = "Perfect! I've collected all the information we need for your Motor Insurance quote."
-        send_whatsapp_message(from_id, confirmation1)
-        store_interaction(from_id, "Completion confirmation", confirmation1)
+    #     # Send confirmation to user
+    #     confirmation1 = "Perfect! I've collected all the information we need for your Motor Insurance quote."
+    #     send_whatsapp_message(from_id, confirmation1)
+    #     store_interaction(from_id, "Completion confirmation", confirmation1)
         
-        await asyncio.sleep(1)
-        confirmation2 = "Our insurance specialist will contact you at your preferred time to discuss your options."
-        send_whatsapp_message(from_id, confirmation2)
-        store_interaction(from_id, "Next steps", confirmation2)
+    #     await asyncio.sleep(1)
+    #     confirmation2 = "Our insurance specialist will contact you at your preferred time to discuss your options."
+    #     send_whatsapp_message(from_id, confirmation2)
+    #     store_interaction(from_id, "Next steps", confirmation2)
         
-        await asyncio.sleep(1)
-        send_yes_no_options(from_id, "Would you like to purchase our insurance again?")
-        user_states[from_id]["stage"] = "waiting_for_new_query"
-        return
+    #     await asyncio.sleep(1)
+    #     send_yes_no_options(from_id, "Would you like to purchase our insurance again?")
+    #     user_states[from_id]["stage"] = "waiting_for_new_query"
+    #     return
         
     # Handle Claim flow
     elif state["stage"] == "claim_flow":
@@ -1167,6 +1177,39 @@ async def process_conversation(
         if selected_wish_to_buy in valid_wish_to_buy:
             user_states[from_id]["responses"]["motor_vehicle_wish_to_buy"] = selected_wish_to_buy
             store_interaction(from_id, "Motor wish to buy question", f"Selected: {selected_wish_to_buy}", user_states)
+            user_states[from_id]["stage"] = "completed"
+            user_json = json.dumps(user_states[from_id]["responses"], indent=2)
+            print(f"User data collected for {from_id}: {user_json}")
+            thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry.Please wait for further  assistance. if you have any questions,Please contact support@insuranceclub.ae"
+            send_whatsapp_message(from_id, thanks)
+            store_interaction(from_id, "Completion confirmation", thanks, user_states)
+            await asyncio.sleep(1)
+            send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
+            user_states[from_id]["stage"] = "waiting_for_new_query"
+        else:
+            from .llm import process_message_with_llm
+            await process_message_with_llm(from_id=from_id, text=text, user_states=user_states)
+            await asyncio.sleep(1)
+            wish_to_buy_question = "What type of insurance would you like to buy?"
+            send_interactive_options(from_id, wish_to_buy_question, valid_wish_to_buy, user_states)
+            store_interaction(from_id, "Bot re-asked for wish to buy", wish_to_buy_question, user_states)
+        return
+    
+    
+
+   # New stage for motor registration city (for cars only)
+    elif state["stage"] == "motor_bike_registration_city":
+        selected_option = interactive_response.get("title") if interactive_response else None
+        
+        emirate_options = [
+            "Abudhabi", "Ajman", "Dubai", "Fujairah", 
+            "Ras Al Khaimah", "Sharjah", "Umm Al Quwain"
+        ]
+        
+        if selected_option in emirate_options:
+            user_states[from_id]["responses"]["registration_city"] = selected_option
+            store_interaction(from_id, "Registration city selection", f"Selected: {selected_option}", user_states)
+            
             user_states[from_id]["stage"] = "completed"
             user_json = json.dumps(user_states[from_id]["responses"], indent=2)
             print(f"User data collected for {from_id}: {user_json}")
