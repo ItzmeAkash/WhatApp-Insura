@@ -546,6 +546,7 @@ async def process_conversation(
                     review_message = "If you are satisfied with Wehbe(Broker) services, please leave a review for sharing happiness to others!!😊"
                     send_link_button(from_id, review_message, "Click Here", review_link, user_states)
                     store_interaction(from_id, "Review request sent", f"Review link: {review_link}", user_states)
+                    del user_states[from_id]
                     
                 else:
                     send_whatsapp_message(from_id, "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please wait for further assistance. If you have any questions, please contact support@insuranceclub.ae.")
@@ -1183,6 +1184,7 @@ async def process_conversation(
             thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry.Please wait for further  assistance. if you have any questions,Please contact support@insuranceclub.ae"
             send_whatsapp_message(from_id, thanks)
             store_interaction(from_id, "Completion confirmation", thanks, user_states)
+            del user_states[from_id]
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
             user_states[from_id]["stage"] = "waiting_for_new_query"
@@ -1216,6 +1218,7 @@ async def process_conversation(
             thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry.Please wait for further  assistance. if you have any questions,Please contact support@insuranceclub.ae"
             send_whatsapp_message(from_id, thanks)
             store_interaction(from_id, "Completion confirmation", thanks, user_states)
+            del user_states[from_id]
             await asyncio.sleep(1)
             send_yes_no_options(from_id, "Would you like to purchase our insurance again?", user_states)
             user_states[from_id]["stage"] = "waiting_for_new_query"
