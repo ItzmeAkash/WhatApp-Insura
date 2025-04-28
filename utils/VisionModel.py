@@ -229,7 +229,7 @@ class DocumentVisionOCR:
             logging.error(f"File not found: {file_path}")
             return None
             
-        # Determine file type
+        # Determine file types
         mime_type, _ = mimetypes.guess_type(file_path)
         
         if mime_type and mime_type.startswith('image/'):
