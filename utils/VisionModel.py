@@ -239,7 +239,7 @@ class DocumentVisionOCR:
             return self.extract_text_from_image(image, prompt)
             
         elif mime_type == 'application/pdf':
-            # Handle PDF file
+            # Handle PDF files
             logging.info(f"Processing PDF file: {file_path}")
             return self.extract_text_from_pdf_to_string(file_path, dpi, prompt, separator)
             
