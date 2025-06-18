@@ -501,6 +501,13 @@ async def process_conversation(
             # Construct the payload with all collected responses
             responses_dict = user_states[from_id]["responses"]
             print(responses_dict)
+            def convert_gender(gender_str):
+                gender_str = gender_str.lower()
+                if gender_str in ["m", "male"]:
+                    return "Male"
+                elif gender_str in ["f", "female"]:
+                    return "Female"
+                return gender_str
             payload = {
                 "visa_issued_emirates": responses_dict.get("medical_q1", "").capitalize(),
                 "plan": responses_dict.get("medical_q2", "").capitalize(),
@@ -514,7 +521,7 @@ async def process_conversation(
                     {
                         "name": responses_dict.get("member_name", "").capitalize(),
                         "dob": responses_dict.get("member_dob", ""),  # Assuming date format is handled elsewhere or as-is
-                        "gender": responses_dict.get(f"member_gender", ""),
+                        "gender": convert_gender(responses_dict.get("member_gender", "")),
                         "marital_status": responses_dict.get("marital_status", ""),
                         "relation": responses_dict.get("relationship_with_sponsor", "").capitalize(),
                     }
