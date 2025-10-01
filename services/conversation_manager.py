@@ -306,19 +306,18 @@ async def process_conversation(
         )
         return
 
-    elif state["stage"] == "initial_question":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
-        )
-        if selected_option:
-            user_states[from_id]["selected_service"] = selected_option
-            user_states[from_id]["responses"]["service_type"] = selected_option
+    elif state["stage"] == "awaiting_passkey":
+        passkey = text.strip()
+        correct_passkey = "5514"
+
+        if passkey == correct_passkey:
+            # Passkey is correct, proceed with the selected service
             store_interaction(
-                from_id,
-                INITIAL_QUESTIONS[0]["question"],
-                f"Selected: {selected_option}",
-                user_states,
+                from_id, "Passkey verification", "Passkey correct", user_states
             )
+
+            selected_option = user_states[from_id].get("pending_service")
+            user_states[from_id]["selected_service"] = selected_option
 
             if "Medical Insurance" in selected_option:
                 state["service_type"] = selected_option
@@ -360,6 +359,48 @@ async def process_conversation(
                 store_interaction(
                     from_id, "Bot asked about claim type", claim_question, user_states
                 )
+        else:
+            # Passkey is incorrect
+            user_states[from_id]["passkey_attempts"] = (
+                user_states[from_id].get("passkey_attempts", 0) + 1
+            )
+            store_interaction(
+                from_id,
+                "Passkey verification",
+                f"Incorrect passkey attempt: {passkey}",
+                user_states,
+            )
+
+            error_message = "❌ Wrong passkey! Please enter the correct passkey:"
+            send_whatsapp_message(from_id, error_message)
+            store_interaction(
+                from_id, "Bot asked for passkey again", error_message, user_states
+            )
+        return
+
+    elif state["stage"] == "initial_question":
+        selected_option = (
+            interactive_response.get("title") if interactive_response else None
+        )
+        if selected_option:
+            # Store the selected option temporarily
+            user_states[from_id]["pending_service"] = selected_option
+            user_states[from_id]["responses"]["service_type"] = selected_option
+            store_interaction(
+                from_id,
+                INITIAL_QUESTIONS[0]["question"],
+                f"Selected: {selected_option}",
+                user_states,
+            )
+
+            # Ask for passkey before proceeding
+            user_states[from_id]["stage"] = "awaiting_passkey"
+            user_states[from_id]["passkey_attempts"] = 0
+            passkey_question = "Please enter your passkey to proceed:"
+            send_whatsapp_message(from_id, passkey_question)
+            store_interaction(
+                from_id, "Bot asked for passkey", passkey_question, user_states
+            )
         else:
             from .llm import process_message_with_llm
 
