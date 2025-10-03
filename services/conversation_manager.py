@@ -976,7 +976,7 @@ async def process_conversation(
             }
             print(payload)
             # API call to medical_insert
-            api = "https://www.insuranceclub.ae/Api/medical_insert"
+            api = "https://insurancelab.ae/Api/medical_insert"
             try:
                 res = requests.post(api, json=payload, timeout=10)
                 res.raise_for_status()
@@ -986,7 +986,7 @@ async def process_conversation(
 
                 # Check if response is an integer ID and send the link
                 if isinstance(medical_detail_response, int):
-                    link = f"https://insuranceclub.ae/customer_plan/{medical_detail_response}"
+                    link = f"https://insurancelab.ae/customer_plan/{medical_detail_response}"
                     thanks = f"Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please find the link below to view your quotation: {link}"
                     send_whatsapp_message(from_id, thanks)
                     store_interaction(
