@@ -977,8 +977,14 @@ async def process_conversation(
             print(payload)
             # API call to medical_insert
             api = "https://insurancelab.ae/Api/medical_insert"
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "X-Requested-With": "XMLHttpRequest",
+            }
             try:
-                res = requests.post(api, json=payload, timeout=10)
+                res = requests.post(api, json=payload, headers=headers, timeout=10)
                 res.raise_for_status()
                 medical_detail_response = res.json()["id"]
                 print(f"Payload sent: {json.dumps(payload, indent=2)}")
