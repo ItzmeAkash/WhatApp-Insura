@@ -52,6 +52,54 @@ async def process_conversation(
 
     state = user_states[from_id]
 
+    # Check for cancel command to reset conversation
+    if text.lower().strip() in ["cancel", "restart", "reset", "start over"]:
+        # Reset the user state
+        user_states[from_id] = {
+            "stage": "greeting",
+            "name": profile_name,
+            "responses": {},
+            "question_index": 0,
+            "selected_service": None,
+            "conversation_history": [],
+            "llm_conversation_count": 0,
+        }
+        state = user_states[from_id]
+
+        # Send confirmation and restart
+        cancel_message = "Conversation cancelled. Let's start fresh!"
+        send_whatsapp_message(from_id, cancel_message)
+        store_interaction(
+            from_id, "User cancelled conversation", cancel_message, user_states
+        )
+        await asyncio.sleep(1)
+
+        # Start greeting flow
+        greeting = "Hi there! My name is Insura from Wehbe Insurance Broker, your AI insurance assistant. I will be happy to assist you with your insurance requirements."
+        send_whatsapp_message(from_id, greeting)
+        store_interaction(
+            from_id, "Initial contact (after cancel)", greeting, user_states
+        )
+        await asyncio.sleep(1)
+
+        if profile_name:
+            user_states[from_id]["stage"] = "initial_question"
+            user_states[from_id]["responses"]["name"] = profile_name
+            greeting_text = (
+                f"Nice to meet you, {profile_name}! {INITIAL_QUESTIONS[0]['question']}"
+            )
+            send_interactive_options(
+                from_id, greeting_text, INITIAL_QUESTIONS[0]["options"], user_states
+            )
+        else:
+            name_request = "Before we proceed, may I know your name please?"
+            send_whatsapp_message(from_id, name_request)
+            store_interaction(
+                from_id, "Bot asked for name (after cancel)", name_request, user_states
+            )
+            user_states[from_id]["stage"] = "awaiting_name"
+        return
+
     # Check for Takaful Emarat Silver trigger first
     if takaful_emarat_silver_flow.detect_takaful_emarat_silver_trigger(text):
         await takaful_emarat_silver_flow.start_takaful_emarat_silver_flow(
@@ -321,11 +369,20 @@ async def process_conversation(
 
             if "Medical Insurance" in selected_option:
                 state["service_type"] = selected_option
-                user_states[from_id]["stage"] = "medical_flow"
-                user_states[from_id]["question_index"] = 0
-                question = MEDICAL_QUESTIONS[0]["question"]
-                options = MEDICAL_QUESTIONS[0]["options"]
-                send_interactive_options(from_id, question, options, user_states)
+                user_states[from_id]["stage"] = "medical_insurance_type"
+                type_question = "Please select the type of medical insurance:"
+                send_interactive_options(
+                    from_id,
+                    type_question,
+                    ["Individual", "SME"],
+                    user_states,
+                )
+                store_interaction(
+                    from_id,
+                    "Bot asked for medical insurance type",
+                    type_question,
+                    user_states,
+                )
                 user_states[from_id] = state
 
             elif "Motor Insurance" in selected_option:
@@ -411,6 +468,58 @@ async def process_conversation(
             greeting_text = f"To continue with our guided assistance, please select one of the following options:"
             send_interactive_options(
                 from_id, greeting_text, INITIAL_QUESTIONS[0]["options"], user_states
+            )
+        return
+
+    elif state["stage"] == "medical_insurance_type":
+        selected_option = (
+            interactive_response.get("title") if interactive_response else None
+        )
+
+        if selected_option == "Individual":
+            user_states[from_id]["responses"]["insurance_type"] = "Individual"
+            store_interaction(
+                from_id,
+                "Medical insurance type selection",
+                f"Selected: {selected_option}",
+                user_states,
+            )
+
+            # Continue with current individual medical flow
+            user_states[from_id]["stage"] = "medical_flow"
+            user_states[from_id]["question_index"] = 0
+            question = MEDICAL_QUESTIONS[0]["question"]
+            options = MEDICAL_QUESTIONS[0]["options"]
+            send_interactive_options(from_id, question, options, user_states)
+
+        elif selected_option == "SME":
+            user_states[from_id]["responses"]["insurance_type"] = "SME"
+            store_interaction(
+                from_id,
+                "Medical insurance type selection",
+                f"Selected: {selected_option}",
+                user_states,
+            )
+
+            # Start SME flow - same first question as medical
+            user_states[from_id]["stage"] = "medical_sme_flow"
+            user_states[from_id]["question_index"] = 0
+            question = MEDICAL_QUESTIONS[0]["question"]
+            options = MEDICAL_QUESTIONS[0]["options"]
+            send_interactive_options(from_id, question, options, user_states)
+        else:
+            from .llm import process_message_with_llm
+
+            await process_message_with_llm(
+                from_id=from_id, text=text, user_states=user_states
+            )
+            await asyncio.sleep(1)
+            type_question = "Please select the type of medical insurance:"
+            send_interactive_options(
+                from_id,
+                type_question,
+                ["Individual", "SME"],
+                user_states,
             )
         return
 
@@ -1059,6 +1168,189 @@ async def process_conversation(
                 from_id, "Bot re-asked for advisor code", code_question, user_states
             )
         return
+    # SME Medical Insurance Flow
+    elif state["stage"] == "medical_sme_flow":
+        question_index = state["question_index"]
+        # Only ask first 2 questions from MEDICAL_QUESTIONS (Visa Emirate and Plan Type)
+        # Skip the sponsor type question (index 2)
+        if question_index < 2:
+            current_question = MEDICAL_QUESTIONS[question_index]["question"]
+            response_value = (
+                interactive_response.get("title") if interactive_response else None
+            )
+            if response_value:
+                key = f"sme_medical_q{question_index + 1}"
+                user_states[from_id]["responses"][key] = response_value
+                store_interaction(
+                    from_id,
+                    current_question,
+                    f"Selected: {response_value}",
+                    user_states,
+                )
+                q_key = f"sme_medical_question{question_index + 1}"
+                user_states[from_id]["responses"][q_key] = current_question
+                user_states[from_id]["question_index"] = question_index + 1
+
+                if question_index + 1 < 2:
+                    # Move to next medical question
+                    next_question = MEDICAL_QUESTIONS[question_index + 1]
+                    send_interactive_options(
+                        from_id,
+                        next_question["question"],
+                        next_question["options"],
+                        user_states,
+                    )
+                elif question_index + 1 == 2:
+                    # After first 2 medical questions, ask for client name
+                    client_name_question = "Thank you. Now, let's move on to: May I have the Client Name, please?"
+                    send_whatsapp_message(from_id, client_name_question)
+                    store_interaction(
+                        from_id,
+                        "Bot asked for client name (SME)",
+                        client_name_question,
+                        user_states,
+                    )
+                    user_states[from_id]["responses"]["sme_question_client_name"] = (
+                        client_name_question
+                    )
+                    user_states[from_id]["stage"] = "medical_sme_client_name"
+            else:
+                from .llm import process_message_with_llm
+
+                await process_message_with_llm(
+                    from_id=from_id, text=text, user_states=user_states
+                )
+                await asyncio.sleep(1)
+                send_interactive_options(
+                    from_id,
+                    current_question,
+                    MEDICAL_QUESTIONS[question_index]["options"],
+                    user_states,
+                )
+            return
+
+    elif state["stage"] == "medical_sme_client_name":
+        client_name = text.strip()
+        user_states[from_id]["responses"]["sme_client_name"] = client_name
+        store_interaction(
+            from_id,
+            "Client name question (SME)",
+            f"Response: {client_name}",
+            user_states,
+        )
+
+        # Move to client mobile number
+        user_states[from_id]["stage"] = "medical_sme_client_phone"
+        phone_question = "Thank you for providing the name. Now, let's move on to: May I have the Client mobile number, please?"
+        send_whatsapp_message(from_id, phone_question)
+        store_interaction(
+            from_id,
+            "Bot asked for client phone (SME)",
+            phone_question,
+            user_states,
+        )
+        user_states[from_id]["responses"]["sme_question_client_phone"] = phone_question
+        return
+
+    elif state["stage"] == "medical_sme_client_phone":
+        client_phone = text.strip()
+
+        # Basic phone number validation (same as medical flow)
+        import re
+
+        phone_pattern = re.compile(r"^\+?\d{9,15}$")
+
+        if phone_pattern.match(client_phone):
+            user_states[from_id]["responses"]["sme_client_phone"] = client_phone
+            store_interaction(
+                from_id,
+                "Client phone question (SME)",
+                f"Response: {client_phone}",
+                user_states,
+            )
+
+            # Move to client email
+            user_states[from_id]["stage"] = "medical_sme_client_email"
+            email_question = "Thank you for providing the mobile number. Now, let's move on to: May I have the Client Email Address, please?"
+            send_whatsapp_message(from_id, email_question)
+            store_interaction(
+                from_id,
+                "Bot asked for client email (SME)",
+                email_question,
+                user_states,
+            )
+            user_states[from_id]["responses"]["sme_question_client_email"] = (
+                email_question
+            )
+        else:
+            error_message = "Please provide a valid phone number (e.g., +971501234567 or 0501234567)"
+            send_whatsapp_message(from_id, error_message)
+            store_interaction(
+                from_id, "Invalid phone number (SME)", error_message, user_states
+            )
+            await asyncio.sleep(1)
+            phone_question = "May I have the Client mobile number, please?"
+            send_whatsapp_message(from_id, phone_question)
+            store_interaction(
+                from_id,
+                "Bot re-asked for client phone (SME)",
+                phone_question,
+                user_states,
+            )
+        return
+
+    elif state["stage"] == "medical_sme_client_email":
+        client_email = text.strip()
+
+        # Basic email validation (same as medical flow)
+        import re
+
+        email_pattern = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+        if email_pattern.match(client_email):
+            user_states[from_id]["responses"]["sme_client_email"] = client_email
+            store_interaction(
+                from_id,
+                "Client email question (SME)",
+                f"Response: {client_email}",
+                user_states,
+            )
+
+            # Complete SME flow
+            user_states[from_id]["stage"] = "completed"
+            user_json = json.dumps(user_states[from_id]["responses"], indent=2)
+            print(f"SME User data collected for {from_id}: {user_json}")
+
+            thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please wait for further assistance. If you have any questions, please contact support@insuranceclub.ae"
+            send_whatsapp_message(from_id, thanks)
+            store_interaction(
+                from_id, "SME Completion confirmation", thanks, user_states
+            )
+
+            await asyncio.sleep(1)
+            send_yes_no_options(
+                from_id, "Would you like to purchase our insurance again?", user_states
+            )
+            user_states[from_id]["stage"] = "waiting_for_new_query"
+        else:
+            error_message = (
+                "Please provide a valid email address (e.g., example@email.com)"
+            )
+            send_whatsapp_message(from_id, error_message)
+            store_interaction(
+                from_id, "Invalid email (SME)", error_message, user_states
+            )
+            await asyncio.sleep(1)
+            email_question = "May I have the Client Email Address, please?"
+            send_whatsapp_message(from_id, email_question)
+            store_interaction(
+                from_id,
+                "Bot re-asked for client email (SME)",
+                email_question,
+                user_states,
+            )
+        return
+
     # Handle Motor Insurance flow
     # elif state["stage"] == "motor_insurance_flow":
     #     # Store vehicle information
@@ -1572,10 +1864,13 @@ async def process_conversation(
                 user_states,
             )
 
-            license_question = f"Thank you for uploading the document,Now,Let's move on to: Please Uplaod your Driving License"
-            send_interactive_options(from_id, marital_question, user_states)
+            license_question = "Thank you for confirming the gender. Now, let's move on to: Please Upload your Driving License"
+            send_whatsapp_message(from_id, license_question)
             store_interaction(
-                from_id, "Bot asked for upload driving license", user_states
+                from_id,
+                "Bot asked for upload driving license",
+                license_question,
+                user_states,
             )
             user_states[from_id]["responses"]["motor_driving_license"] = (
                 license_question
