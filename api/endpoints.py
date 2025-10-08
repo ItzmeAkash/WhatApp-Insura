@@ -449,6 +449,61 @@ async def webhook(request: Request):
                                             f"Sorry, I couldn't retrieve your {msg_type}. Please try again.",
                                         )
 
+                                # Handle SME Excel file upload
+                                elif (
+                                    from_id in user_states
+                                    and user_states[from_id]["stage"]
+                                    == "medical_sme_excel_upload"
+                                ):
+                                    media_data = download_whatsapp_media(media_id)
+                                    if media_data:
+                                        try:
+                                            # Check if it's an Excel file
+                                            excel_mime_types = [
+                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                "application/vnd.ms-excel",
+                                                "application/vnd.ms-excel.sheet.macroEnabled.12",
+                                            ]
+
+                                            if (
+                                                mime_type in excel_mime_types
+                                                or filename.endswith((".xlsx", ".xls"))
+                                            ):
+                                                send_whatsapp_message(
+                                                    from_id,
+                                                    f"Received your Excel file. Processing now, please wait...",
+                                                )
+                                                from services.document_processor import (
+                                                    process_sme_excel,
+                                                )
+
+                                                excel_data = await process_sme_excel(
+                                                    from_id,
+                                                    media_data,
+                                                    filename,
+                                                    user_states,
+                                                )
+                                                if excel_data:
+                                                    print(
+                                                        f"Excel data extracted successfully: {excel_data.get('total_employees', 0)} employees"
+                                                    )
+                                            else:
+                                                send_whatsapp_message(
+                                                    from_id,
+                                                    "Please upload a valid Excel file (.xlsx or .xls format).",
+                                                )
+                                        except Exception as e:
+                                            print(f"Error processing Excel file: {e}")
+                                            send_whatsapp_message(
+                                                from_id,
+                                                f"An error occurred while processing your Excel file. Please ensure it's in the correct format and try again.",
+                                            )
+                                    else:
+                                        send_whatsapp_message(
+                                            from_id,
+                                            f"Sorry, I couldn't retrieve your Excel file. Please try again.",
+                                        )
+
                     elif "statuses" in value:
                         status_info = value["statuses"][0]
                         print(

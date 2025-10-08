@@ -1316,22 +1316,18 @@ async def process_conversation(
                 user_states,
             )
 
-            # Complete SME flow
-            user_states[from_id]["stage"] = "completed"
-            user_json = json.dumps(user_states[from_id]["responses"], indent=2)
-            print(f"SME User data collected for {from_id}: {user_json}")
-
-            thanks = "Thank you for sharing the details. We will inform Shafeeque Shanavas from Wehbe Insurance to assist you further with your enquiry. Please wait for further assistance. If you have any questions, please contact support@insuranceclub.ae"
-            send_whatsapp_message(from_id, thanks)
+            # Ask for Excel file upload
+            user_states[from_id]["stage"] = "medical_sme_excel_upload"
+            excel_request = (
+                "Please upload an Excel file to get your medical insurance details"
+            )
+            send_whatsapp_message(from_id, excel_request)
             store_interaction(
-                from_id, "SME Completion confirmation", thanks, user_states
+                from_id,
+                "Bot requested Excel upload (SME)",
+                excel_request,
+                user_states,
             )
-
-            await asyncio.sleep(1)
-            send_yes_no_options(
-                from_id, "Would you like to purchase our insurance again?", user_states
-            )
-            user_states[from_id]["stage"] = "waiting_for_new_query"
         else:
             error_message = (
                 "Please provide a valid email address (e.g., example@email.com)"
@@ -1349,6 +1345,18 @@ async def process_conversation(
                 email_question,
                 user_states,
             )
+        return
+
+    elif state["stage"] == "medical_sme_excel_upload":
+        # This stage acts as a waiting state; actual Excel processing is handled by the webhook
+        send_whatsapp_message(
+            from_id,
+            "Thank you for uploading the Excel file. I'm processing it now, please wait a moment...",
+        )
+        store_interaction(
+            from_id, "Excel upload received", "Processing started", user_states
+        )
+        # No further action here; the webhook will handle the Excel and send completion message
         return
 
     # Handle Motor Insurance flow
