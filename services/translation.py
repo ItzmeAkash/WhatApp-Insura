@@ -194,6 +194,8 @@ def detect_language_change_request(text: str) -> tuple[bool, str]:
         "arabic": [
             "change to arabic",
             "switch to arabic",
+            "speak in arabic",
+            "change language to arabic",
             "arabic language",
             "speak arabic",
             "in arabic",
