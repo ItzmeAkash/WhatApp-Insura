@@ -15,6 +15,7 @@ from services.whatsapp import (
     download_whatsapp_audio,
     download_whatsapp_media,
     send_whatsapp_message,
+    clear_user_language,
 )
 from services.conversation_manager import process_conversation
 from services.llm import initialize_llm, process_message_with_llm
@@ -531,6 +532,7 @@ async def reset_conversation(phone_number: str):
         phone_number = "+" + phone_number
     if phone_number in user_states:
         user_states.pop(phone_number)
+        clear_user_language(phone_number)
         return {
             "status": "success",
             "message": f"Conversation reset for {phone_number}",

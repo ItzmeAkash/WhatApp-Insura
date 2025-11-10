@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Dict, Optional
-from .whatsapp import send_whatsapp_message, send_yes_no_options
+from .whatsapp import send_whatsapp_message, send_yes_no_options, send_whatsapp_message_translated, send_yes_no_options_translated
 from .llm import initialize_llm
 from utils.helpers import store_interaction
 from langchain.schema import HumanMessage, SystemMessage
@@ -184,7 +184,7 @@ Examples:
 
         # Generate AI welcome message (matching your website implementation)
         welcome_message = await self.generate_welcome_message()
-        send_whatsapp_message(from_id, welcome_message)
+        await send_whatsapp_message_translated(from_id, welcome_message, user_states)
         store_interaction(
             from_id, "Takaful Emarat Silver Welcome", welcome_message, user_states
         )
@@ -302,7 +302,7 @@ Examples:
         if not user_states[from_id].get("takaful_emarat_asked", False):
             # If Takaful Emarat Silver wasn't asked first, provide a general response
             general_response = "I'd be happy to help you with information about this topic. However, to provide you with the most accurate and specific information, could you please first ask about the Takaful Emarat Silver plan? This will help me give you the most relevant details for your situation."
-            send_whatsapp_message(from_id, general_response)
+            await send_whatsapp_message_translated(from_id, general_response, user_states)
             store_interaction(
                 from_id, "Takaful General Response", general_response, user_states
             )
@@ -320,7 +320,7 @@ Examples:
             else:
                 answer = matching_qa["answer"]
 
-            send_whatsapp_message(from_id, answer)
+            await send_whatsapp_message_translated(from_id, answer, user_states)
             store_interaction(
                 from_id,
                 f"Takaful QA #{user_states[from_id]['takaful_qa_count']}",
@@ -387,7 +387,7 @@ Examples:
     async def send_takaful_document(self, from_id: str, user_states: Dict):
         """Send the Takaful Emarat Silver document"""
         document_message = f"Here's the detailed brochure for Takaful Emarat Silver plan: {TAKAFUL_EMARAT_SILVER_DOCUMENT_URL}"
-        send_whatsapp_message(from_id, document_message)
+        await send_whatsapp_message_translated(from_id, document_message, user_states)
         store_interaction(
             from_id, "Takaful Document Sent", document_message, user_states
         )
@@ -399,7 +399,7 @@ Examples:
     async def ask_followup_question(self, from_id: str, user_states: Dict):
         """Ask follow-up question with Yes/No options"""
         followup_message = "Is there anything else you want me to help you with related to Takaful Emarat Silver?"
-        send_yes_no_options(from_id, followup_message, user_states)
+        await send_yes_no_options_translated(from_id, followup_message, user_states)
         store_interaction(
             from_id, "Takaful Follow-up Question", followup_message, user_states
         )
@@ -495,7 +495,7 @@ Examples:
     async def continue_takaful_conversation(self, from_id: str, user_states: Dict):
         """Continue the Takaful conversation"""
         continue_message = await self.generate_continue_message()
-        send_whatsapp_message(from_id, continue_message)
+        await send_whatsapp_message_translated(from_id, continue_message, user_states)
         store_interaction(
             from_id, "Takaful Continue Message", continue_message, user_states
         )
@@ -509,7 +509,7 @@ Examples:
     async def exit_takaful_conversation(self, from_id: str, user_states: Dict):
         """Exit the Takaful conversation and return to main flow"""
         exit_message = "Thank you for your interest in Takaful Emarat Silver! If you have any more questions in the future, feel free to ask. Is there anything else I can help you with today?"
-        send_whatsapp_message(from_id, exit_message)
+        await send_whatsapp_message_translated(from_id, exit_message, user_states)
         store_interaction(from_id, "Takaful Exit Message", exit_message, user_states)
 
         # Reset to main flow - clear Takaful flags and return to initial question stage

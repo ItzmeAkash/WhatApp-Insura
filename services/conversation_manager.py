@@ -1,7 +1,7 @@
 import asyncio
 import json
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 import requests
 from config.settings import (
@@ -14,9 +14,202 @@ from .whatsapp import (
     send_whatsapp_message,
     send_interactive_options,
     send_yes_no_options,
+    set_user_language,
+    clear_user_language,
 )
-from utils.helpers import emaf_document, is_thank_you, store_interaction
+from utils.helpers import emaf_document, store_interaction
 from .takaful_emarat_silver import takaful_emarat_silver_flow
+from .translation import detect_language_change_with_llm
+
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ar": "Arabic",
+    "ur": "Urdu",
+    "hi": "Hindi",
+    "fr": "French",
+    "es": "Spanish",
+}
+
+
+def normalize_user_id(user_id: str) -> str:
+    return user_id.lstrip("+") if user_id else user_id
+
+
+def get_user_state(user_states: Dict, user_id: str) -> Optional[Dict]:
+    return user_states.get(user_id) or user_states.get(normalize_user_id(user_id))
+
+
+def resolve_option_choice(
+    from_id: str,
+    user_states: Dict,
+    expected_options: List[str],
+    interactive_response: Optional[Dict],
+    text: Optional[str],
+) -> Optional[str]:
+    state = get_user_state(user_states, from_id)
+    if not state:
+        return None
+
+    option_id_map = state.get("last_option_id_map", {})
+    title_map = state.get("last_option_title_map", {})
+
+    if interactive_response:
+        option_id = interactive_response.get("id")
+        if option_id and option_id in option_id_map:
+            return option_id_map[option_id]
+        title = interactive_response.get("title")
+        if title:
+            normalized_title = title.strip().lower()
+            if normalized_title in title_map:
+                return title_map[normalized_title]
+
+    if text:
+        trimmed = text.strip()
+        if trimmed.isdigit():
+            index = int(trimmed) - 1
+            if 0 <= index < len(expected_options):
+                return expected_options[index]
+        lowered = trimmed.lower()
+        for option in expected_options:
+            if lowered == option.lower():
+                return option
+        if lowered in title_map:
+            return title_map[lowered]
+
+    return None
+
+
+def normalize_digits(value: str) -> str:
+    if not value:
+        return value
+
+    digit_map = {
+        ord("٠"): "0",
+        ord("١"): "1",
+        ord("٢"): "2",
+        ord("٣"): "3",
+        ord("٤"): "4",
+        ord("٥"): "5",
+        ord("٦"): "6",
+        ord("٧"): "7",
+        ord("٨"): "8",
+        ord("٩"): "9",
+        ord("۰"): "0",
+        ord("۱"): "1",
+        ord("۲"): "2",
+        ord("۳"): "3",
+        ord("۴"): "4",
+        ord("۵"): "5",
+        ord("۶"): "6",
+        ord("۷"): "7",
+        ord("۸"): "8",
+        ord("۹"): "9",
+    }
+    return value.translate(digit_map)
+
+
+async def resend_current_prompt(from_id: str, user_states: Dict) -> None:
+    state = get_user_state(user_states, from_id)
+    if not state:
+        return
+
+    stage = state.get("stage")
+    if not stage:
+        return
+
+    if stage == "initial_question":
+        name = (
+            state.get("responses", {}).get("name")
+            or state.get("name")
+            or state.get("profile_name")
+        )
+        if name:
+            prompt = f"Hi {name}, welcome to Insura! {INITIAL_QUESTIONS[0]['question']}"
+        else:
+            prompt = INITIAL_QUESTIONS[0]["question"]
+        send_interactive_options(
+            from_id, prompt, INITIAL_QUESTIONS[0]["options"], user_states
+        )
+    elif stage == "awaiting_name":
+        send_whatsapp_message(
+            from_id, "Before we proceed, may I know your name please?"
+        )
+    elif stage == "awaiting_passkey":
+        send_whatsapp_message(from_id, "Please enter your passkey to proceed:")
+    elif stage == "waiting_for_new_query":
+        send_yes_no_options(
+            from_id, "Would you like to purchase our insurance again?", user_states
+        )
+    elif stage == "medical_insurance_type":
+        send_interactive_options(
+            from_id,
+            "Please select the type of medical insurance:",
+            ["Individual", "SME"],
+            user_states,
+        )
+    elif stage == "motor_insurance_vehicle_type":
+        send_interactive_options(
+            from_id,
+            "What would you like to do today?",
+            ["Car Insurance", "Bike Insurance"],
+            user_states,
+        )
+    elif stage == "medical_member_input_method":
+        member_question = "Next, we need the details of the member. Would you like to upload their Emirates ID or manually enter the information?"
+        send_yes_no_options(from_id, member_question, user_states)
+    elif stage == "medical_flow":
+        question_index = state.get("question_index", 0)
+        if question_index < len(MEDICAL_QUESTIONS):
+            current_question = MEDICAL_QUESTIONS[question_index]
+            send_interactive_options(
+                from_id,
+                current_question["question"],
+                current_question["options"],
+                user_states,
+            )
+    elif stage == "medical_sme_flow":
+        question_index = state.get("question_index", 0)
+        if question_index < 2:
+            current_question = MEDICAL_QUESTIONS[question_index]
+            send_interactive_options(
+                from_id,
+                current_question["question"],
+                current_question["options"],
+                user_states,
+            )
+    elif stage == "emaf_company":
+        company_request = (
+            "Could you kindly confirm the name of your insurance company, please?"
+        )
+        send_interactive_options(
+            from_id,
+            company_request,
+            EMAF_INSURANCE_COMPANIES[0]["options"],
+            user_states,
+        )
+    elif stage == "motor_registration_city":
+        registration_question = "Great choice! Let's start with your motor insurance details. Select the city of registration:"
+        emirate_options = [
+            "Abudhabi",
+            "Ajman",
+            "Dubai",
+            "Fujairah",
+            "Ras Al Khaimah",
+            "Sharjah",
+            "Umm Al Quwain",
+        ]
+        send_interactive_options(
+            from_id, registration_question, emirate_options, user_states
+        )
+    elif stage == "motor_member_input_method":
+        member_question = "Next, we need the details of the member. Would you like to upload their Emirates ID or manually enter the information?"
+        send_yes_no_options(from_id, member_question, user_states)
+    elif stage == "motor_vehicle_wish_to_buy":
+        wish_to_buy_question = "What type of insurance would you like to buy?"
+        send_interactive_options(
+            from_id, wish_to_buy_question, ["Comprehensive", "Third Party"], user_states
+        )
 
 
 async def process_conversation(
@@ -35,26 +228,18 @@ async def process_conversation(
             "selected_service": None,
             "conversation_history": [],
             "llm_conversation_count": 0,
+            "language": "en",
         }
-    fields_to_verify = [
-        "name",
-        "id_number",
-        "date_of_birth",
-        "nationality",
-        "issue_date",
-        "expiry_date",
-        "gender",
-        "card_number",
-        "occupation",
-        "employer",
-        "issuing_place",
-    ]
-
+        set_user_language(from_id, "en")
     state = user_states[from_id]
+    if "language" not in state:
+        state["language"] = "en"
+    set_user_language(from_id, state["language"])
 
     # Check for cancel command to reset conversation
     if text.lower().strip() in ["cancel", "restart", "reset", "start over"]:
         # Reset the user state
+        current_language = state.get("language", "en")
         user_states[from_id] = {
             "stage": "greeting",
             "name": profile_name,
@@ -63,8 +248,10 @@ async def process_conversation(
             "selected_service": None,
             "conversation_history": [],
             "llm_conversation_count": 0,
+            "language": current_language,
         }
         state = user_states[from_id]
+        set_user_language(from_id, current_language)
 
         # Send confirmation and restart
         cancel_message = "Conversation cancelled. Let's start fresh!"
@@ -99,6 +286,24 @@ async def process_conversation(
             )
             user_states[from_id]["stage"] = "awaiting_name"
         return
+
+    if text:
+        language_change, detected_language = await detect_language_change_with_llm(text)
+        if language_change:
+            previous_language = state.get("language", "en")
+            state["language"] = detected_language
+            set_user_language(from_id, detected_language)
+            language_name = LANGUAGE_NAMES.get(detected_language, detected_language)
+            if detected_language == previous_language:
+                confirmation = f"We are already chatting in {language_name}. How else may I help you?"
+            else:
+                confirmation = f"Language updated. I will continue in {language_name}."
+            send_whatsapp_message(from_id, confirmation)
+            store_interaction(
+                from_id, "Language change confirmation", confirmation, user_states
+            )
+            await resend_current_prompt(from_id, user_states)
+            return
 
     # Check for Takaful Emarat Silver trigger first
     if takaful_emarat_silver_flow.detect_takaful_emarat_silver_trigger(text):
@@ -197,10 +402,10 @@ async def process_conversation(
 
     # EMAF Flow: Awaiting Insurance Company Selection
     if state["stage"] == "emaf_company":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        emaf_options = EMAF_INSURANCE_COMPANIES[0]["options"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, emaf_options, interactive_response, text
         )
-        # In services/conversation_manager.py, within the "emaf_company" elif block
         if selected_option in COMPANY_NUMBER_MAPPING:
             company_id = COMPANY_NUMBER_MAPPING[selected_option]
             user_states[from_id]["responses"]["emaf_company_id"] = company_id
@@ -244,14 +449,15 @@ async def process_conversation(
             send_interactive_options(
                 from_id,
                 "Could you kindly confirm the name of your insurance company, please?",
-                EMAF_INSURANCE_COMPANIES,
+                emaf_options,
                 user_states,
             )
         return
 
     if state["stage"] == "waiting_for_new_query":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
         store_interaction(
             from_id,
@@ -355,7 +561,8 @@ async def process_conversation(
         return
 
     elif state["stage"] == "awaiting_passkey":
-        passkey = text.strip()
+        passkey_raw = text.strip()
+        passkey = normalize_digits(passkey_raw)
         correct_passkey = "5514"
 
         if passkey == correct_passkey:
@@ -436,8 +643,9 @@ async def process_conversation(
         return
 
     elif state["stage"] == "initial_question":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        initial_options = INITIAL_QUESTIONS[0]["options"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, initial_options, interactive_response, text
         )
         if selected_option:
             # Store the selected option temporarily
@@ -465,15 +673,16 @@ async def process_conversation(
                 from_id=from_id, text=text, user_states=user_states
             )
             await asyncio.sleep(1)
-            greeting_text = f"To continue with our guided assistance, please select one of the following options:"
+            greeting_text = "To continue with our guided assistance, please select one of the following options:"
             send_interactive_options(
                 from_id, greeting_text, INITIAL_QUESTIONS[0]["options"], user_states
             )
         return
 
     elif state["stage"] == "medical_insurance_type":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        medical_type_options = ["Individual", "SME"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, medical_type_options, interactive_response, text
         )
 
         if selected_option == "Individual":
@@ -524,8 +733,9 @@ async def process_conversation(
         return
 
     elif state["stage"] == "motor_insurance_vehicle_type":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        vehicle_type_options = ["Car Insurance", "Bike Insurance"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, vehicle_type_options, interactive_response, text
         )
 
         if selected_option in ["Car Insurance", "Bike Insurance"]:
@@ -605,8 +815,12 @@ async def process_conversation(
         question_index = state["question_index"]
         if question_index < len(MEDICAL_QUESTIONS):
             current_question = MEDICAL_QUESTIONS[question_index]["question"]
-            response_value = (
-                interactive_response.get("title") if interactive_response else None
+            response_value = resolve_option_choice(
+                from_id,
+                user_states,
+                MEDICAL_QUESTIONS[question_index]["options"],
+                interactive_response,
+                text,
             )
             if response_value:
                 key = f"medical_q{question_index + 1}"
@@ -784,8 +998,9 @@ async def process_conversation(
             )
         return
     elif state["stage"] == "medical_member_input_method":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
         if selected_option == "Yes":
             upload_question = "Please Upload Your Document"
@@ -848,8 +1063,9 @@ async def process_conversation(
         return
 
     elif state["stage"] == "medical_member_gender":
-        selected_gender = (
-            interactive_response.get("title") if interactive_response else None
+        gender_options = ["Male", "Female"]
+        selected_gender = resolve_option_choice(
+            from_id, user_states, gender_options, interactive_response, text
         )
         if selected_gender in ["Male", "Female"]:
             user_states[from_id]["responses"]["member_gender"] = selected_gender
@@ -886,8 +1102,9 @@ async def process_conversation(
 
     # New stage for marital status
     elif state["stage"] == "medical_marital_status":
-        selected_marital = (
-            interactive_response.get("title") if interactive_response else None
+        marital_options = ["Single", "Married"]
+        selected_marital = resolve_option_choice(
+            from_id, user_states, marital_options, interactive_response, text
         )
         if selected_marital in ["Single", "Married"]:
             user_states[from_id]["responses"]["marital_status"] = selected_marital
@@ -936,11 +1153,7 @@ async def process_conversation(
             )
         return
 
-    # New stage for relationship
     elif state["stage"] == "medical_relationship":
-        selected_relationship = (
-            interactive_response.get("title") if interactive_response else None
-        )
         valid_relationships = [
             "Investor",
             "Employee",
@@ -950,6 +1163,9 @@ async def process_conversation(
             "Parent",
             "Domestic",
         ]
+        selected_relationship = resolve_option_choice(
+            from_id, user_states, valid_relationships, interactive_response, text
+        )
         if selected_relationship in valid_relationships:
             user_states[from_id]["responses"]["relationship_with_sponsor"] = (
                 selected_relationship
@@ -961,7 +1177,7 @@ async def process_conversation(
                 user_states,
             )
 
-            advisor_question = "Thank you for providing the relationship.let's proceed with: Do you have an Insurance Advisor code?"
+            advisor_question = "Thank you for providing the relationship. Let's proceed: Do you have an Insurance Advisor code?"
             send_yes_no_options(from_id, advisor_question, user_states)
             store_interaction(
                 from_id, "Bot asked for advisor code", advisor_question, user_states
@@ -987,8 +1203,9 @@ async def process_conversation(
 
     # New stage for advisor code
     elif state["stage"] == "medical_advisor_code":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
         if selected_option == "Yes":
             code_question = "Thank you for the responses! Now,Please enter your Insurance Advisor code for assigning your enquiry for further assistance"
@@ -1129,6 +1346,7 @@ async def process_conversation(
                         user_states,
                     )
                     del user_states[from_id]
+                    clear_user_language(from_id)
 
                 else:
                     send_whatsapp_message(
@@ -1175,8 +1393,12 @@ async def process_conversation(
         # Skip the sponsor type question (index 2)
         if question_index < 2:
             current_question = MEDICAL_QUESTIONS[question_index]["question"]
-            response_value = (
-                interactive_response.get("title") if interactive_response else None
+            response_value = resolve_option_choice(
+                from_id,
+                user_states,
+                MEDICAL_QUESTIONS[question_index]["options"],
+                interactive_response,
+                text,
             )
             if response_value:
                 key = f"sme_medical_q{question_index + 1}"
@@ -1523,8 +1745,9 @@ async def process_conversation(
 
     # After document upload and information display, handle confirmation
     elif state["stage"] == "document_info_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -1573,8 +1796,9 @@ async def process_conversation(
 
     # Handle selection of field to edit
     elif state["stage"] == "select_field_to_edit":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
 
         if selected_option == "Done Editing":
@@ -1617,10 +1841,11 @@ async def process_conversation(
 
     # Handle user entering a new value for the field
     elif state["stage"] == "entering_new_value":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
-        new_value = selected_option if selected_option else text
+        new_value = selected_option if selected_option is not None else text
 
         store_interaction(
             from_id,
@@ -1635,8 +1860,9 @@ async def process_conversation(
 
     # Handle final confirmation after editing is complete
     elif state["stage"] == "final_document_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -1687,8 +1913,9 @@ async def process_conversation(
 
     # Handler for checking if user wants to continue editing
     elif state["stage"] == "check_continue_editing":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -1731,10 +1958,6 @@ async def process_conversation(
 
     # New stage for motor registration city (for cars only)
     elif state["stage"] == "motor_registration_city":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
-        )
-
         emirate_options = [
             "Abudhabi",
             "Ajman",
@@ -1744,6 +1967,10 @@ async def process_conversation(
             "Sharjah",
             "Umm Al Quwain",
         ]
+        insurance_type_options = ["Comprehensive", "Third Party"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, emirate_options, interactive_response, text
+        )
 
         if selected_option in emirate_options:
             user_states[from_id]["responses"]["registration_city"] = selected_option
@@ -1780,8 +2007,9 @@ async def process_conversation(
     # New stage for motor owner ID input method selection
 
     elif state["stage"] == "motor_member_input_method":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
         if selected_option == "Yes":
             upload_question = "Please Upload Your Document"
@@ -1860,8 +2088,9 @@ async def process_conversation(
         return
 
     elif state["stage"] == "motor_member_gender":
-        selected_gender = (
-            interactive_response.get("title") if interactive_response else None
+        gender_options = ["Male", "Female"]
+        selected_gender = resolve_option_choice(
+            from_id, user_states, gender_options, interactive_response, text
         )
         if selected_gender in ["Male", "Female"]:
             user_states[from_id]["responses"]["motor_member_gender"] = selected_gender
@@ -1912,8 +2141,9 @@ async def process_conversation(
     # Todo
     # After document upload and information display, handle confirmation
     elif state["stage"] == "lience_document_info_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -1961,8 +2191,9 @@ async def process_conversation(
 
     # Handle selection of field to edit
     elif state["stage"] == "license_select_field_to_edit":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
 
         if selected_option == "Done Editing":
@@ -2005,10 +2236,11 @@ async def process_conversation(
 
     # Handle user entering a new value for the field
     elif state["stage"] == "lience_entering_new_value":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
-        new_value = selected_option if selected_option else text
+        new_value = selected_option if selected_option is not None else text
 
         store_interaction(
             from_id,
@@ -2023,8 +2255,9 @@ async def process_conversation(
 
     # Handle final confirmation after editing is complete
     elif state["stage"] == "lience_final_document_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -2076,8 +2309,9 @@ async def process_conversation(
 
     # Handler for checking if user wants to continue editing
     elif state["stage"] == "licnese_check_continue_editing":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -2133,8 +2367,9 @@ async def process_conversation(
 
     # After document upload and information display, handle confirmation
     elif state["stage"] == "mulkiya_document_info_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -2182,8 +2417,9 @@ async def process_conversation(
 
     # Handle selection of field to edit
     elif state["stage"] == "mulkiya_select_field_to_edit":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
 
         if selected_option == "Done Editing":
@@ -2226,10 +2462,11 @@ async def process_conversation(
 
     # Handle user entering a new value for the field
     elif state["stage"] == "mulkiya_entering_new_value":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        available_options = state.get("last_options_original", [])
+        selected_option = resolve_option_choice(
+            from_id, user_states, available_options, interactive_response, text
         )
-        new_value = selected_option if selected_option else text
+        new_value = selected_option if selected_option is not None else text
 
         store_interaction(
             from_id,
@@ -2244,8 +2481,9 @@ async def process_conversation(
 
     # Handle final confirmation after editing is complete
     elif state["stage"] == "mulkiya_final_document_confirmation":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -2297,8 +2535,9 @@ async def process_conversation(
 
     # Handler for checking if user wants to continue editing
     elif state["stage"] == "mulkiya_check_continue_editing":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
+        yes_no_options = ["Yes", "No"]
+        selected_option = resolve_option_choice(
+            from_id, user_states, yes_no_options, interactive_response, text
         )
 
         if selected_option == "Yes" or text.lower() in [
@@ -2340,16 +2579,10 @@ async def process_conversation(
         return
 
     elif state["stage"] == "motor_vehicle_wish_to_buy":
-        selected_wish_to_buy = (
-            interactive_response.get("title") if interactive_response else None
-        )
         valid_wish_to_buy = ["Comprehensive", "Third Party"]
-        # Normalize text input for fallback case
-        text_response = text.strip().lower()
-        if text_response in ["comprehensive", "third party"]:
-            selected_wish_to_buy = (
-                "Comprehensive" if text_response == "comprehensive" else "Third Party"
-            )
+        selected_wish_to_buy = resolve_option_choice(
+            from_id, user_states, valid_wish_to_buy, interactive_response, text
+        )
 
         if selected_wish_to_buy in valid_wish_to_buy:
             user_states[from_id]["responses"]["motor_vehicle_wish_to_buy"] = (
@@ -2368,6 +2601,7 @@ async def process_conversation(
             send_whatsapp_message(from_id, thanks)
             store_interaction(from_id, "Completion confirmation", thanks, user_states)
             del user_states[from_id]
+            clear_user_language(from_id)
             await asyncio.sleep(1)
             send_yes_no_options(
                 from_id, "Would you like to purchase our insurance again?", user_states
@@ -2382,7 +2616,7 @@ async def process_conversation(
             await asyncio.sleep(1)
             wish_to_buy_question = "What type of insurance would you like to buy?"
             send_interactive_options(
-                from_id, wish_to_buy_question, valid_wish_to_buy, user_states
+                from_id, wish_to_buy_question, insurance_type_options, user_states
             )
             store_interaction(
                 from_id,
@@ -2394,10 +2628,6 @@ async def process_conversation(
 
     # New stage for motor registration city (for cars only)
     elif state["stage"] == "motor_bike_registration_city":
-        selected_option = (
-            interactive_response.get("title") if interactive_response else None
-        )
-
         emirate_options = [
             "Abudhabi",
             "Ajman",
@@ -2407,6 +2637,9 @@ async def process_conversation(
             "Sharjah",
             "Umm Al Quwain",
         ]
+        selected_option = resolve_option_choice(
+            from_id, user_states, emirate_options, interactive_response, text
+        )
 
         if selected_option in emirate_options:
             user_states[from_id]["responses"]["registration_city"] = selected_option
@@ -2424,6 +2657,7 @@ async def process_conversation(
             send_whatsapp_message(from_id, thanks)
             store_interaction(from_id, "Completion confirmation", thanks, user_states)
             del user_states[from_id]
+            clear_user_language(from_id)
             await asyncio.sleep(1)
             send_yes_no_options(
                 from_id, "Would you like to purchase our insurance again?", user_states
